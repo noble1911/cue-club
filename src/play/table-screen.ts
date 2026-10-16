@@ -512,10 +512,16 @@ export class TableScreen {
         return;
       }
       if (this.view.mode === 'top') return this.aimAtPointer(e);
-      // down the cue you're making the finest adjustments
+      // Each movement turns the cue at the rate in force right now, so pressing Shift part-way
+      // through a drag slows what comes next instead of rescaling (and undoing) what's been done.
+      // Down the cue you're making the finest adjustments.
       const fine = (e.shiftKey ? 0.12 : 1) * (this.view.mode === 'sight' ? 0.3 : 1);
-      this.setAimAngle(drag.angle - (e.clientX - drag.x) * 0.0045 * fine);
-      if (this.view.mode === 'aim') this.view.pitch = clamp(drag.pitch + (e.clientY - drag.y) * 0.004, 0, 1);
+      const dx = e.clientX - drag.x;
+      const dy = e.clientY - drag.y;
+      drag.x = e.clientX;
+      drag.y = e.clientY;
+      this.setAimAngle(this.aimAngle - dx * 0.0045 * fine);
+      if (this.view.mode === 'aim') this.view.pitch = clamp(this.view.pitch + dy * 0.004, 0, 1);
       this.syncView();
     };
     const onUp = () => {

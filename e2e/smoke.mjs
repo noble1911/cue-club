@@ -128,6 +128,21 @@ try {
     await pc.mouse.move(760, 400, { steps: 5 });
     await pc.mouse.up({ button: 'right' });
     check(Math.abs((await ang()) - a0) > 0.05 && !(await pc.evaluate(() => window.__cue.view.isPlaying)), 'mouse: right-drag aims without shooting');
+    // Shift part-way through a drag slows what comes next; it must not undo what was done
+    {
+      const s0 = await ang();
+      await pc.mouse.move(600, 400);
+      await pc.mouse.down({ button: 'right' });
+      await pc.mouse.move(700, 400, { steps: 5 });
+      const coarse = (await ang()) - s0;
+      await pc.keyboard.down('Shift');
+      await pc.mouse.move(720, 400, { steps: 4 });
+      const after = (await ang()) - s0;
+      await pc.keyboard.up('Shift');
+      await pc.mouse.up({ button: 'right' });
+      const fineBit = after - coarse;
+      check(Math.abs(after) >= Math.abs(coarse) && Math.abs(fineBit) < Math.abs(coarse) * 0.05, `mouse: Shift mid-drag keeps the aim and fine-tunes (${coarse.toFixed(3)} rad, then ${fineBit.toFixed(4)} more)`);
+    }
     await pc.mouse.move(600, 300);
     await pc.mouse.down();
     await pc.mouse.move(600, 306);

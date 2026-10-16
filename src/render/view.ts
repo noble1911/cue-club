@@ -635,10 +635,17 @@ export class TableView {
     const uy = dy / l;
     const hit = castBall(spec, balls, 0, cb.x, cb.y, ux, uy);
     const maxLen = this.guideLength === 'short' ? spec.length * 0.22 : Infinity;
-    const len = Math.min(hit.dist, maxLen);
+    // straight down a pocket's throat the ray meets nothing: stop the line at the table's edge
+    let reach = hit.dist;
+    if (!Number.isFinite(reach)) {
+      const ex = ux > 1e-9 ? (spec.length / 2 + R - cb.x) / ux : ux < -1e-9 ? (-spec.length / 2 - R - cb.x) / ux : Infinity;
+      const ey = uy > 1e-9 ? (spec.width / 2 + R - cb.y) / uy : uy < -1e-9 ? (-spec.width / 2 - R - cb.y) / uy : Infinity;
+      reach = Math.min(ex, ey);
+    }
+    const len = Math.min(reach, maxLen);
     const h = R * 0.15;
     this.guide.add(this.strip(cb.x, cb.y, cb.x + ux * len, cb.y + uy * len, R * 0.12, h, this.lineMat));
-    if (len < hit.dist) return;
+    if (len < hit.dist || !Number.isFinite(hit.dist)) return;
     const gx = cb.x + ux * hit.dist;
     const gy = cb.y + uy * hit.dist;
     const ghost = new THREE.Mesh(this.ghost.geometry, this.ghost.material);
