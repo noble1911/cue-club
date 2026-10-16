@@ -167,19 +167,22 @@ class Sound {
 
   private build(): void {
     const vary = (base: number, seed: number, spread = 0.04) => base * (1 + noiseGen(seed)() * spread);
-    // Ball on ball: a phenolic resin ball's first few modes (~3–8 kHz), short, plus the crack.
+    // Ball on ball: a muted "clack" more than a ring. Long-ringing high partials are what make
+    // an impact sound glassy or metallic, so the modes sit low (~0.6–3 kHz) and die in a few
+    // milliseconds, and most of the sound is the softened contact thud.
     this.buf.click = Array.from({ length: 8 }, (_, i) =>
       this.modal(
-        0.09,
+        0.06,
         [
-          { f: vary(3050, i * 3 + 1), tau: 0.016, a: 1 },
-          { f: vary(4820, i * 3 + 2), tau: 0.009, a: 0.6 },
-          { f: vary(7350, i * 3 + 3), tau: 0.005, a: 0.35 },
-          { f: vary(1480, i * 3 + 4), tau: 0.006, a: 0.25 },
+          { f: vary(1150, i * 3 + 1, 0.06), tau: 0.005, a: 0.9 },
+          { f: vary(1900, i * 3 + 2, 0.06), tau: 0.0045, a: 0.75 },
+          { f: vary(2900, i * 3 + 3, 0.06), tau: 0.003, a: 0.4 },
+          { f: vary(650, i * 3 + 4, 0.06), tau: 0.006, a: 0.35 },
         ],
-        0.9,
-        0.0012,
+        1.2,
+        0.0018,
         100 + i,
+        0.35,
       ),
     );
     // Cushion: the rubber and wooden rail, a dull thump with a soft knock on top.
@@ -197,19 +200,20 @@ class Sound {
         0.08,
       ),
     );
-    // Cue tip: leather on resin, a woody knock and the cue ball's own ring.
+    // Cue tip: leather on resin, a soft woody knock (leather damps almost everything high).
     this.buf.tip = Array.from({ length: 3 }, (_, i) =>
       this.modal(
-        0.1,
+        0.08,
         [
-          { f: vary(880, i + 50, 0.06), tau: 0.012, a: 0.8 },
-          { f: vary(2950, i + 60), tau: 0.012, a: 0.55 },
-          { f: vary(4700, i + 70), tau: 0.006, a: 0.25 },
-          { f: vary(420, i + 80, 0.06), tau: 0.02, a: 0.45 },
+          { f: vary(620, i + 50, 0.06), tau: 0.009, a: 0.85 },
+          { f: vary(1400, i + 60, 0.06), tau: 0.006, a: 0.5 },
+          { f: vary(2200, i + 70, 0.06), tau: 0.0035, a: 0.25 },
+          { f: vary(330, i + 80, 0.06), tau: 0.014, a: 0.5 },
         ],
-        0.8,
+        1,
         0.0018,
         300 + i,
+        0.4,
       ),
     );
     // Into the pocket: a ball dropping onto leather.
@@ -320,7 +324,7 @@ class Sound {
   cue(power: number, pan = 0): void {
     if (!this.ctx) return;
     const p = Math.max(0, Math.min(1, power));
-    this.voice(this.pick('tip'), 0.18 + p * 0.7, { pan, lowpass: 2500 + p * 9000, rate: 0.96 + Math.random() * 0.08 });
+    this.voice(this.pick('tip'), 0.18 + p * 0.7, { pan, lowpass: 1600 + p * 4200, rate: 0.97 + Math.random() * 0.06 });
   }
 
   /** Something happened on the table; `pan` −1 (left) … 1 (right) from where it is on screen. */
@@ -333,7 +337,7 @@ class Sound {
       if (now - this.lastClick < 0.004) return;
       this.lastClick = now;
       // harder → louder and brighter (more of the high modes get through)
-      this.voice(this.pick('click'), 0.08 + Math.pow(v, 0.7) * 0.9, { pan, lowpass: 1800 + v * 12000, rate: 0.95 + Math.random() * 0.1 });
+      this.voice(this.pick('click'), 0.08 + Math.pow(v, 0.7) * 0.9, { pan, lowpass: 1200 + v * 5300, rate: 0.96 + Math.random() * 0.08 });
     } else if (e.type === 'cushion') {
       this.voice(this.pick('cushion'), 0.06 + Math.pow(v, 0.8) * 0.7, { pan, lowpass: 600 + v * 3000, rate: 0.92 + Math.random() * 0.16 });
     } else {
@@ -353,7 +357,7 @@ class Sound {
       t += 0.12 + k * 0.05;
       this.voice(this.pick('knock'), 0.16 * (1 - k * 0.12), { pan: pan * (1 - k * 0.2), lowpass: 2200, when: t, rate: 0.9 + Math.random() * 0.2 });
     }
-    this.voice(this.pick('click'), 0.28, { pan: pan * 0.3, lowpass: 5000, when: t + 0.35, rate: 0.8 });
+    this.voice(this.pick('click'), 0.28, { pan: pan * 0.3, lowpass: 2600, when: t + 0.35, rate: 0.85 });
   }
 
   /** How much is rolling (sum of ball speeds, m/s): drives the cloth rumble. */
@@ -485,7 +489,7 @@ class Sound {
       } else {
         // a distant break-off or pot: two or three far-away clicks
         const n = 1 + Math.floor(Math.random() * 3);
-        for (let k = 0; k < n; k++) this.voice(this.pick('click'), 0.035 + Math.random() * 0.03, { pan, lowpass: 2600, when: k * (0.05 + Math.random() * 0.25), dest: this.amb!, rate: 0.9 });
+        for (let k = 0; k < n; k++) this.voice(this.pick('click'), 0.035 + Math.random() * 0.03, { pan, lowpass: 1600, when: k * (0.05 + Math.random() * 0.25), dest: this.amb!, rate: 0.9 });
       }
       this.ambTimer = setTimeout(tick, 3500 + Math.random() * 9000);
     };
