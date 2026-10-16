@@ -373,9 +373,11 @@ class Sound {
   /** How much is rolling (sum of ball speeds, m/s): drives the cloth rumble. */
   setRolling(level: number): void {
     if (!this.ctx || !this.rollGain || !this.rollFilter) return;
+    // balls on cloth are nearly silent: a low rumble, felt more than heard (brighter or louder
+    // noise reads as a whoosh of air)
     const v = Math.min(1, level / 6);
-    this.rollGain.gain.setTargetAtTime(this.muted ? 0 : Math.pow(v, 0.8) * 0.22, this.ctx.currentTime, 0.05);
-    this.rollFilter.frequency.setTargetAtTime(180 + v * 520, this.ctx.currentTime, 0.08);
+    this.rollGain.gain.setTargetAtTime(this.muted ? 0 : Math.pow(v, 1.3) * 0.07, this.ctx.currentTime, 0.08);
+    this.rollFilter.frequency.setTargetAtTime(150 + v * 250, this.ctx.currentTime, 0.1);
   }
 
   /** Polite applause (snooker), 0…1. */
@@ -390,24 +392,52 @@ class Sound {
     src.buffer = this.buf.noise[0];
     src.loop = true;
     this.rollFilter = ctx.createBiquadFilter();
-    this.rollFilter.type = 'bandpass';
-    this.rollFilter.Q.value = 0.8;
+    this.rollFilter.type = 'lowpass';
+    this.rollFilter.Q.value = 0.5;
     this.rollGain = ctx.createGain();
     this.rollGain.gain.value = 0;
-    src.connect(this.rollFilter).connect(this.rollGain).connect(this.sfx!);
+    // straight out, dry: through the room echo it smeared into a hiss
+    src.connect(this.rollFilter).connect(this.rollGain).connect(this.out!);
     src.start();
   }
 
   // ---------------------------------------------------------------- the room
 
+  /** A room's echo: decaying stereo noise that darkens as it fades (highs die before lows). */
+  private roomImpulse(decay: number, seed: number): AudioBuffer {
+    const ctx = this.ctx!;
+    const sr = ctx.sampleRate;
+    const n = Math.floor(sr * decay * 2);
+    const b = ctx.createBuffer(2, n, sr);
+    for (let ch = 0; ch < 2; ch++) {
+      const rn = noiseGen(seed + ch * 101);
+      const d = b.getChannelData(ch);
+      let lp = 0;
+      let lp2 = 0;
+      let peak = 0;
+      for (let i = 0; i < n; i++) {
+        const t = i / sr;
+        // two lowpass stages (12 dB/octave) closing from bright early reflections to a dark tail
+        const a = 0.025 + 0.45 * Math.exp(-t / (decay / 10));
+        lp += a * (rn() - lp);
+        lp2 += a * (lp - lp2);
+        d[i] = lp2 * Math.exp(-t / (decay / 3)) * (t < 0.006 ? t / 0.006 : 1);
+        peak = Math.max(peak, Math.abs(d[i]));
+      }
+      if (peak > 0) for (let i = 0; i < n; i++) d[i] /= peak;
+    }
+    return b;
+  }
+
   private applyTheme(): void {
     const ctx = this.ctx;
     if (!ctx || !this.reverb || !this.wet) return;
     // the echo: a stereo impulse of decaying noise, longer for bigger, harder rooms
+    // A white-noise tail decays evenly at every pitch and hisses (a whoosh after each click). In
+    // a real room the highs die first: so the noise is lowpassed harder and harder as it decays.
     const decay = this.theme === 'club' ? 0.55 : this.theme === 'pub' ? 0.85 : 1.3;
-    const rn = noiseGen(this.theme.length * 31);
-    this.reverb.buffer = this.render(decay * 2.2, (t) => rn() * Math.exp(-t / (decay / 3)) * (t < 0.008 ? t / 0.008 : 1), true);
-    this.wet.gain.value = this.theme === 'club' ? 0.12 : this.theme === 'pub' ? 0.2 : 0.26;
+    this.reverb.buffer = this.roomImpulse(decay, this.theme.length * 31);
+    this.wet.gain.value = this.theme === 'club' ? 0.07 : this.theme === 'pub' ? 0.12 : 0.16;
   }
 }
 

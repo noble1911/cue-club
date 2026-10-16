@@ -35,7 +35,9 @@ the Node server runs the TypeScript directly. See README.md for the file map.
 - Sound (`src/audio.ts`) is synthesised: each sound is rendered once into buffers from damped
   modes (ball ~3-7 kHz, cushion ~120-700 Hz, tip, pocket), then every impact replays one with
   loudness/brightness from the impact speed and stereo pan from the ball's place on screen
-  (`view.panFor`). Cloth rumble follows `view.onRolling`; each room theme sets the echo and the
+  (`view.panFor`). Cloth rumble follows `view.onRolling` (kept very quiet and below ~400 Hz, dry:
+  louder or brighter it read as a whoosh); each room theme sets the echo (decaying noise that
+  darkens as it fades; a white-noise tail hisses) and the
   pocket (net for snooker, ball return for pool). A limiter and a 28-voice cap keep breaks clean.
   No background ambience: recorded crowds were too busy and recorded room tone read as fans and
   dripping in a warehouse, so it was removed on purpose (tried, not forgotten).
