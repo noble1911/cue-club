@@ -4,18 +4,12 @@
 // knock plus the cue ball's ring. The sounds are rendered once into buffers, then every impact
 // replays one with loudness, brightness, pitch and stereo position from the physics (how hard,
 // where on screen). On top: cloth rumble that follows the balls' speed, a room echo per room,
-// pockets (a pool table's ball return, a snooker net), room ambience and snooker applause.
+// pockets (a pool table's ball return, a snooker net) and snooker applause. No background
+// ambience: recorded room tone and crowds were tried and read as a hum or a busy café.
 
 import type { SimEvent } from './sim/physics.ts';
 import type { RoomTheme } from './render/room.ts';
 import { store } from './ui/dom.ts';
-// bundled with content-hashed names (assets/club-<hash>.mp3): a changed file gets a new URL, so
-// no cache (browser or Cloudflare) can ever hold on to an old or missing copy
-import clubBed from './assets/sounds/club.mp3?url';
-import pubBed from './assets/sounds/pub.mp3?url';
-import hallBed from './assets/sounds/hall.mp3?url';
-
-const BEDS: Record<RoomTheme, string> = { club: clubBed, pub: pubBed, hall: hallBed };
 
 type Pocket = 'net' | 'return';
 
@@ -42,14 +36,12 @@ class Sound {
   private out: GainNode | null = null;
   private sfx: GainNode | null = null;
   private wet: GainNode | null = null;
-  private amb: GainNode | null = null;
+  private crowd: GainNode | null = null;
   private reverb: ConvolverNode | null = null;
   private rollGain: GainNode | null = null;
   private rollFilter: BiquadFilterNode | null = null;
   private buf: Record<string, AudioBuffer[]> = {};
   private theme: RoomTheme = 'club';
-  private ambNodes: AudioNode[] = [];
-  private ambTimer: ReturnType<typeof setTimeout> | null = null;
   private voices = 0;
   private lastClick = 0;
 
@@ -58,7 +50,6 @@ class Sound {
     const v = Number(store.get('volume'));
     return Number.isFinite(v) && store.get('volume') !== null ? Math.min(1, Math.max(0, v)) : 0.8;
   })();
-  ambience = store.get('ambience') !== '0';
 
   /** Browsers only allow audio after a user gesture: call from one. */
   unlock(): void {
@@ -89,8 +80,8 @@ class Sound {
     this.reverb = ctx.createConvolver();
     this.wet = ctx.createGain();
     this.sfx.connect(this.reverb).connect(this.wet).connect(this.out);
-    this.amb = ctx.createGain();
-    this.amb.connect(this.out);
+    this.crowd = ctx.createGain();
+    this.crowd.connect(this.out);
     this.build();
     this.startRolling();
     this.applyTheme();
@@ -110,13 +101,7 @@ class Sound {
     this.applyVolume();
   }
 
-  setAmbience(on: boolean): void {
-    this.ambience = on;
-    store.set('ambience', on ? '1' : '0');
-    this.applyTheme();
-  }
-
-  /** The room (and so the echo, the pockets and the ambience). */
+  /** The room (and so the echo and the pockets). */
   setTheme(t: RoomTheme): void {
     if (t === this.theme && this.ctx) return;
     this.theme = t;
@@ -263,7 +248,7 @@ class Sound {
         { f: vary(1650, i + 120, 0.1), tau: 0.006, a: 0.4 },
       ], 0.4, 0.004, 600 + i, 0.2),
     );
-    // Long noise for the cloth rumble and the ambience (stereo, loops).
+    // Long noise for the cloth rumble (stereo, loops).
     const rn = noiseGen(777);
     let b1 = 0;
     this.buf.noise = [
@@ -396,7 +381,7 @@ class Sound {
   /** Polite applause (snooker), 0…1. */
   applause(intensity = 0.6): void {
     if (!this.ctx) return;
-    this.voice(this.buf.applause[0], 0.15 + intensity * 0.35, { lowpass: 6500, dest: this.amb ?? undefined });
+    this.voice(this.buf.applause[0], 0.15 + intensity * 0.35, { lowpass: 6500, dest: this.crowd ?? undefined });
   }
 
   private startRolling(): void {
@@ -417,82 +402,12 @@ class Sound {
 
   private applyTheme(): void {
     const ctx = this.ctx;
-    if (!ctx || !this.reverb || !this.wet || !this.amb) return;
+    if (!ctx || !this.reverb || !this.wet) return;
     // the echo: a stereo impulse of decaying noise, longer for bigger, harder rooms
     const decay = this.theme === 'club' ? 0.55 : this.theme === 'pub' ? 0.85 : 1.3;
     const rn = noiseGen(this.theme.length * 31);
     this.reverb.buffer = this.render(decay * 2.2, (t) => rn() * Math.exp(-t / (decay / 3)) * (t < 0.008 ? t / 0.008 : 1), true);
     this.wet.gain.value = this.theme === 'club' ? 0.12 : this.theme === 'pub' ? 0.2 : 0.26;
-    this.stopAmbience();
-    if (this.ambience) this.startAmbience();
-  }
-
-  private stopAmbience(): void {
-    for (const n of this.ambNodes) {
-      try {
-        (n as AudioScheduledSourceNode).stop?.();
-      } catch {
-        /* not started */
-      }
-      n.disconnect();
-    }
-    this.ambNodes = [];
-    if (this.ambTimer) clearTimeout(this.ambTimer);
-    this.ambTimer = null;
-  }
-
-  /** Recorded room ambience, fetched once per room. */
-  private beds = new Map<RoomTheme, Promise<AudioBuffer | null>>();
-
-  private bed(theme: RoomTheme): Promise<AudioBuffer | null> {
-    let p = this.beds.get(theme);
-    if (!p) {
-      const url = BEDS[theme];
-      p = fetch(url)
-        .then((r) => (r.ok ? r.arrayBuffer() : Promise.reject(new Error(`${url}: ${r.status}`))))
-        .then((data) => this.ctx!.decodeAudioData(data))
-        .catch((e) => {
-          console.warn('ambience unavailable', e);
-          this.beds.delete(theme);
-          return null;
-        });
-      this.beds.set(theme, p);
-    }
-    return p;
-  }
-
-  private startAmbience(): void {
-    const ctx = this.ctx!;
-    const theme = this.theme;
-    // the room itself: a real recording (CC0, see src/assets/sounds/CREDITS.md), looped seamlessly.
-    // Each file has 0.5 s of guard audio at both ends; loop exactly the 60 s between them.
-    void this.bed(theme).then((buffer) => {
-      if (!buffer || !this.ctx || !this.ambience || this.theme !== theme) return;
-      const src = ctx.createBufferSource();
-      src.buffer = buffer;
-      src.loop = true;
-      src.loopStart = 0.5;
-      src.loopEnd = Math.min(buffer.duration - 0.01, 60.5);
-      const g = ctx.createGain();
-      // well behind the game: a hush in the club, a muffled murmur in the pub and the hall
-      const level = theme === 'club' ? 0.6 : theme === 'pub' ? 0.3 : 0.28;
-      g.gain.setValueAtTime(0, ctx.currentTime);
-      g.gain.linearRampToValueAtTime(level, ctx.currentTime + 2);
-      src.connect(g).connect(this.amb!);
-      // start somewhere different each time so it isn't always the same opening
-      src.start(0, 0.5 + Math.random() * 59);
-      this.ambNodes.push(src, g);
-    });
-    if (theme === 'pub') return;
-    // now and then, a shot at another table (snooker club, pool hall)
-    const tick = () => {
-      if (!this.ctx || !this.ambience || this.theme !== theme) return;
-      const pan = Math.random() * 1.6 - 0.8;
-      const n = 1 + Math.floor(Math.random() * 3);
-      for (let k = 0; k < n; k++) this.voice(this.pick('click'), 0.025 + Math.random() * 0.02, { pan, lowpass: 1600, when: k * (0.05 + Math.random() * 0.25), dest: this.amb!, rate: 0.9 });
-      this.ambTimer = setTimeout(tick, 20000 + Math.random() * 25000);
-    };
-    this.ambTimer = setTimeout(tick, 12000 + Math.random() * 15000);
   }
 }
 

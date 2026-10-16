@@ -113,7 +113,6 @@ export class TableScreen {
             <button class="p-help">Controls</button>
             <button class="p-sound"></button>
             <label class="p-vol">Volume <input type="range" min="0" max="100" step="1"></label>
-            <button class="p-amb"></button>
             <button class="p-concede">Concede frame</button>
             <button class="p-quit">Leave table</button>
           </div>
@@ -789,11 +788,6 @@ export class TableScreen {
       this.refreshTools();
     });
     vol.addEventListener('change', () => sound.cue(0.5));
-    this.dom.querySelector('.p-amb')!.addEventListener('click', () => {
-      sound.unlock();
-      sound.setAmbience(!sound.ambience);
-      this.refreshTools();
-    });
     this.$['p-concede'].addEventListener('click', () => {
       this.togglePause(false);
       this.concede();
@@ -901,8 +895,6 @@ export class TableScreen {
     this.$['t-guide'].title = this.o.guide ? 'Set by the room host' : 'Aim guide';
     this.$['t-cam'].textContent = this.view.mode === 'top' ? '⤢ Overhead' : this.view.mode === 'sight' ? '⤢ Sight' : '⤢ Cue view';
     this.$['p-sound'].textContent = sound.muted ? 'Sound: off' : 'Sound: on';
-    const amb = this.dom.querySelector('.p-amb');
-    if (amb) amb.textContent = sound.ambience ? 'Room ambience: on' : 'Room ambience: off';
     const canConcede = this.o.seats.includes('human') && !this.match.frame.over;
     this.$['p-concede'].classList.toggle('hidden', !canConcede);
   }
