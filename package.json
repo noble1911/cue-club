@@ -1,0 +1,35 @@
+{
+  "name": "cue-club",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Pool and snooker in the browser: UK 8-ball, US 8-ball, 9-ball and snooker. Vs computer, pass & play, online and knockout tournaments.",
+  "type": "module",
+  "license": "MIT",
+  "scripts": {
+    "dev": "vite",
+    "server": "PORT=3009 node --watch server/index.ts",
+    "start": "node server/index.ts",
+    "build": "tsc --noEmit && vite build",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "e2e": "node e2e/smoke.mjs",
+    "preview:path": "npm run build && node tools/serve-prefixed.mjs dist cue-club 5190",
+    "deploy": "scripts/deploy.sh"
+  },
+  "dependencies": {
+    "ws": "^8.22.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.3",
+    "@types/three": "^0.186.0",
+    "@types/ws": "^8.18.1",
+    "puppeteer-core": "^24.0.0",
+    "three": "^0.186.1",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.1",
+    "vitest": "^5.0.2"
+  },
+  "engines": {
+    "node": ">=24"
+  }
+}
