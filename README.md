@@ -25,6 +25,8 @@ Live at **https://games.noblehaus.uk/cue-club/**.
   pull the mouse back** to draw the cue, anywhere on the table.
 - **On a touch screen:** drag on the table to aim; the power bar on the right is the cue.
 - Arrow keys aim too; hold Shift for fine aim.
+- **Hold Z** (or the Zoom button) to zoom in on the contact point while you line up; the mouse
+  wheel moves the cue view in and out.
 - **Shoot** depends on the **cueing** setting (menu, or the host's choice online):
   - *Casual:* pull back (mouse or power bar) and let go (or ↑/↓ then Space). Exactly as aimed.
   - *Club:* pull back to your power (the white mark), then push forward through the ball.

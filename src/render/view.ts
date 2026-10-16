@@ -171,7 +171,8 @@ export class TableView {
       this.renderer.setSize(w, h);
       this.camera.aspect = w / h;
       // phones held upright need a wider view to see past the cue ball
-      this.camera.fov = w < h ? 62 : 42;
+      this.baseFov = w < h ? 62 : 42;
+      this.camera.fov = this.baseFov;
       this.camera.updateProjectionMatrix();
     };
     new ResizeObserver(resize).observe(container);
@@ -688,7 +689,7 @@ export class TableView {
     if (!spec || !this.table) return { pos: new THREE.Vector3(0, 3, 3), look: new THREE.Vector3(), up };
     const OA = this.table.outerA;
     const OB = this.table.outerB;
-    const tan = Math.tan((this.camera.fov * Math.PI) / 360);
+    const tan = Math.tan((this.baseFov * Math.PI) / 360);
     const aspect = this.camera.aspect;
     if (this.mode === 'top' || (this.mode !== 'orbit' && this.playing && this.topDuringShot)) {
       const portrait = aspect < 1;
@@ -731,10 +732,45 @@ export class TableView {
   /** In aim mode, jump to the overhead view while the balls run (instead of the chase view). */
   topDuringShot = false;
 
+  /** The field of view without the zoom (wider on a phone held upright). */
+  private baseFov = 42;
+  /** Hold-to-zoom (Z, or the Zoom button): 0 … 1, eased. */
+  zoomHold = false;
+  private zoomK = 0;
+
+  /** Where the zoom looks: the ghost ball, where the cue ball will meet the first ball. */
+  private zoomFocus(): THREE.Vector3 | null {
+    const spec = this.spec;
+    const cb = this.placing ?? this.state[0];
+    if (!spec || !this.aim || !cb || this.playing) return null;
+    const balls = this.state.map((b) => (b.id === 0 ? { ...b, x: cb.x, y: cb.y } : b));
+    const l = Math.hypot(this.aim.dx, this.aim.dy) || 1;
+    const ux = this.aim.dx / l;
+    const uy = this.aim.dy / l;
+    const hit = castBall(spec, balls, 0, cb.x, cb.y, ux, uy);
+    const d = Number.isFinite(hit.dist) ? hit.dist : spec.length / 2;
+    return v3(cb.x + ux * d, cb.y + uy * d, spec.ballRadius);
+  }
+
   private updateCamera(dt: number): void {
     if (this.mode === 'orbit') this.orbitAngle += dt * 0.06;
 
     const want = this.desiredCamera();
+    // hold-to-zoom: narrow the view onto the contact point (overhead: drop down over it)
+    const focus = this.mode !== 'orbit' && this.zoomHold ? this.zoomFocus() : null;
+    this.zoomK += ((focus ? 1 : 0) - this.zoomK) * (1 - Math.exp(-dt * 10));
+    if (this.zoomK > 0.001) {
+      const f = focus ?? this.zoomFocus();
+      if (f) {
+        want.look.lerp(f, this.zoomK);
+        if (this.mode === 'top') want.pos.lerp(f.clone().setY(0.75).add(new THREE.Vector3(0, 0, 0.0001)), this.zoomK);
+      }
+    }
+    const fov = this.mode === 'top' ? this.baseFov : this.baseFov + (13 - this.baseFov) * this.zoomK;
+    if (Math.abs(this.camera.fov - fov) > 0.01) {
+      this.camera.fov = fov;
+      this.camera.updateProjectionMatrix();
+    }
     const k = 1 - Math.exp(-dt * ((this.mode === 'aim' || this.mode === 'sight') && !this.playing ? 9 : 3.2));
     this.camPos.lerp(want.pos, k);
     this.camLook.lerp(want.look, k);

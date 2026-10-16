@@ -95,6 +95,7 @@ export class TableScreen {
           <div class="power-track"><div class="power-fill"></div><div class="power-target"></div></div><span class="power-pct">Power</span>
         </div>
         <div class="tools">
+          <button class="t-zoom" title="Hold to zoom in on the contact point (hold Z)">🔍 Zoom</button>
           <button class="t-cam" title="Camera (V)">⤢ View</button>
           <button class="t-guide" title="Aim guide">◎ Guide</button>
           <button class="t-menu" title="Menu (Esc)">☰</button>
@@ -605,8 +606,12 @@ export class TableScreen {
     // keys
     const onKey = (e: KeyboardEvent) => {
       if ((e.target as HTMLElement)?.tagName === 'INPUT') return;
-      if (e.type === 'keyup') return void this.keys.delete(e.key);
+      if (e.type === 'keyup') {
+        if (e.key === 'z' || e.key === 'Z') this.view.zoomHold = false;
+        return void this.keys.delete(e.key);
+      }
       this.keys.add(e.key);
+      if (e.key === 'z' || e.key === 'Z') this.view.zoomHold = true;
       if (e.key === 'Escape') this.togglePause();
       if (e.key === 'v' || e.key === 'V') this.toggleCamera();
       if (!this.myTurn) {
@@ -636,7 +641,10 @@ export class TableScreen {
         this.syncView();
       }
     };
-    const blur = () => this.keys.clear();
+    const blur = () => {
+      this.keys.clear();
+      this.view.zoomHold = false;
+    };
     window.addEventListener('keydown', onKey);
     window.addEventListener('keyup', onKey);
     window.addEventListener('blur', blur);
@@ -647,6 +655,12 @@ export class TableScreen {
     });
 
     // buttons
+    const zoom = this.dom.querySelector('.t-zoom') as HTMLElement;
+    zoom.addEventListener('pointerdown', (e) => {
+      zoom.setPointerCapture(e.pointerId);
+      this.view.zoomHold = true;
+    });
+    for (const t of ['pointerup', 'pointercancel', 'lostpointercapture']) zoom.addEventListener(t, () => (this.view.zoomHold = false));
     this.dom.querySelector('.t-cam')!.addEventListener('click', () => this.toggleCamera());
     this.dom.querySelector('.t-guide')!.addEventListener('click', () => {
       if (this.o.guide) return this.flash('The host sets the aim guide for this room');
@@ -841,6 +855,7 @@ export class TableScreen {
 
   dispose(): void {
     this.disposed = true;
+    this.view.zoomHold = false;
     for (const c of this.cleanup) c();
     this.view.onRender = null;
     this.view.aim = null;
