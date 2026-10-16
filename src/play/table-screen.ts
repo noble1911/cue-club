@@ -405,15 +405,75 @@ export class TableScreen {
 
   // ---------------------------------------------------------------- input
 
+  /** A stroke in progress: from the power bar (touch) or the left mouse button (anywhere). */
+  private stroking: null | { x: number; y: number; px: number; dead: number; back: number; forward: StrokeSample[] | null } = null;
+
+  /** Start a stroke at (x, y); `px` is how far a full pull back moves the pointer. */
+  private strokeBegin(x: number, y: number, px: number, dead: number): void {
+    this.stroking = { x, y, px, dead, back: 0, forward: null };
+    this.meter = null;
+    this.aim.power = 0;
+    this.syncView();
+  }
+
+  /** Pull back (pointer moving down/towards you) and, in club/pro, the push through. */
+  private strokeMove(x: number, y: number): void {
+    const st = this.stroking;
+    if (!st) return;
+    const p = clamp((y - st.y) / st.px, 0, 1);
+    this.aim.power = p;
+    if (this.cueing === 'casual') return this.syncView();
+    if (!st.forward) {
+      if (p >= st.back) {
+        st.back = p;
+        if (this.cueing === 'club') this.target = p;
+      } else if (st.back - p > 0.03 && st.back > Math.max(0.04, st.dead)) {
+        st.forward = [{ t: performance.now(), x: x - st.x, pull: st.back }];
+      }
+    }
+    if (st.forward) {
+      st.forward.push({ t: performance.now(), x: x - st.x, pull: p });
+      if (p <= 0.015) {
+        this.stroking = null;
+        return this.strike(judgeStroke(this.cueing as 'club' | 'pro', st.forward, st.px));
+      }
+    }
+    this.syncView();
+  }
+
+  /** Button or finger lifted. */
+  private strokeEnd(): void {
+    const st = this.stroking;
+    if (!st) return;
+    this.stroking = null;
+    if (this.cueing === 'casual') {
+      if (this.aim.power >= Math.max(0.015, st.dead)) this.shoot();
+      else {
+        this.aim.power = 0;
+        this.syncView();
+      }
+      return;
+    }
+    // let go mid-push: struck where it got to, if it was really going forward
+    if (st.forward && st.forward.length > 2 && st.back - st.forward[st.forward.length - 1].pull > st.back * 0.5) {
+      return this.strike(judgeStroke(this.cueing as 'club' | 'pro', st.forward, st.px));
+    }
+    this.aim.power = 0;
+    this.syncView();
+    if (st.back > Math.max(0.04, st.dead)) this.flash('Push the cue forward through the ball to play the shot');
+  }
+
   private bindInput(): void {
     const canvas = this.view.renderer.domElement;
-    let drag: null | { kind: 'aim' | 'place'; x: number; y: number; angle: number; pitch: number } = null;
+    let drag: null | { kind: 'aim' | 'place' | 'stroke'; x: number; y: number; angle: number; pitch: number } = null;
     const onDown = (e: PointerEvent) => {
       sound.unlock();
       if (this.view.isPlaying) return this.view.hurry();
       if (!this.myTurn || this.waitingForServer) return;
+      const mouse = e.pointerType === 'mouse';
+      if (mouse && e.button !== 0 && e.button !== 2) return;
       canvas.setPointerCapture(e.pointerId);
-      if (this.match.frame.inHand && this.place) {
+      if (this.match.frame.inHand && this.place && (!mouse || e.button === 0)) {
         const p = this.view.project(this.place.x, this.place.y);
         const near = Math.hypot(p.x - e.clientX, p.y - e.clientY) < 34;
         if (near) {
@@ -421,11 +481,22 @@ export class TableScreen {
           return;
         }
       }
+      // a mouse strikes with the left button (pull back, push forward) and aims with the right;
+      // a finger aims on the table and strikes on the power bar
+      if (mouse && e.button === 0) {
+        if (this.match.frame.inHand && this.place && !canPlace(this.match, this.place.x, this.place.y)) return this.flash('Place the cue ball first');
+        drag = { kind: 'stroke', x: e.clientX, y: e.clientY, angle: 0, pitch: 0 };
+        // a full pull back is ~a third of the screen height; ignore twitches under 12 px
+        const px = Math.max(220, window.innerHeight * 0.32);
+        this.strokeBegin(e.clientX, e.clientY, px, 12 / px);
+        return;
+      }
       drag = { kind: 'aim', x: e.clientX, y: e.clientY, angle: this.aimAngle, pitch: this.view.pitch };
       if (this.view.mode === 'top') this.aimAtPointer(e);
     };
     const onMove = (e: PointerEvent) => {
       if (!drag || !this.myTurn) return;
+      if (drag.kind === 'stroke') return this.strokeMove(e.clientX, e.clientY);
       if (drag.kind === 'place') {
         const p = this.view.pick(e.clientX, e.clientY);
         if (p) {
@@ -442,6 +513,10 @@ export class TableScreen {
       this.syncView();
     };
     const onUp = () => {
+      if (drag?.kind === 'stroke') {
+        drag = null;
+        return this.strokeEnd();
+      }
       if (drag?.kind === 'place' && this.place && !canPlace(this.match, this.place.x, this.place.y)) this.flash('The cue ball can’t go there');
       drag = null;
     };
@@ -449,80 +524,33 @@ export class TableScreen {
       e.preventDefault();
       if (this.view.mode === 'aim') this.view.zoom = clamp(this.view.zoom * (1 + Math.sign(e.deltaY) * 0.08), 0.5, 2.2);
     };
+    const noMenu = (e: Event) => e.preventDefault();
     canvas.addEventListener('pointerdown', onDown);
     canvas.addEventListener('pointermove', onMove);
     canvas.addEventListener('pointerup', onUp);
     canvas.addEventListener('pointercancel', onUp);
     canvas.addEventListener('wheel', onWheel, { passive: false });
+    canvas.addEventListener('contextmenu', noMenu);
     this.cleanup.push(() => {
       canvas.removeEventListener('pointerdown', onDown);
       canvas.removeEventListener('pointermove', onMove);
       canvas.removeEventListener('pointerup', onUp);
       canvas.removeEventListener('pointercancel', onUp);
       canvas.removeEventListener('wheel', onWheel);
+      canvas.removeEventListener('contextmenu', noMenu);
     });
 
-    // power. casual: drag down, let go. club/pro: drag down (the backswing) then push back up
-    // (the stroke), and the shot goes when the cue reaches the ball.
+    // the power bar: the same stroke, for fingers (or a mouse that prefers it)
     const power = this.$['power'];
-    let pull: { y: number; x: number; h: number; back: number; forward: StrokeSample[] | null } | null = null;
-    const pullAt = (e: PointerEvent) => clamp((e.clientY - pull!.y) / (pull!.h * 0.9), 0, 1);
     power.addEventListener('pointerdown', (e) => {
       sound.unlock();
       if (!this.myTurn || this.waitingForServer) return;
       power.setPointerCapture(e.pointerId);
-      pull = { y: e.clientY, x: e.clientX, h: power.querySelector('.power-track')!.getBoundingClientRect().height, back: 0, forward: null };
-      this.meter = null;
-      this.aim.power = 0;
-      this.syncView();
+      this.strokeBegin(e.clientX, e.clientY, power.querySelector('.power-track')!.getBoundingClientRect().height * 0.9, 0);
     });
-    power.addEventListener('pointermove', (e) => {
-      if (!pull) return;
-      const p = pullAt(e);
-      this.aim.power = p;
-      if (this.cueing === 'casual') return this.syncView();
-      if (!pull.forward) {
-        if (p >= pull.back) {
-          pull.back = p;
-          if (this.cueing === 'club') this.target = p;
-        } else if (pull.back - p > 0.03 && pull.back > 0.04) {
-          // the push has started
-          pull.forward = [{ t: performance.now(), x: e.clientX - pull.x, pull: pull.back }];
-        }
-      }
-      if (pull.forward) {
-        pull.forward.push({ t: performance.now(), x: e.clientX - pull.x, pull: p });
-        if (p <= 0.015) {
-          const f = pull.forward;
-          const h = pull.h;
-          pull = null;
-          return this.strike(judgeStroke(this.cueing as 'club' | 'pro', f, h * 0.9));
-        }
-      }
-      this.syncView();
-    });
-    const release = () => {
-      if (!pull) return;
-      const p = pull;
-      pull = null;
-      if (this.cueing === 'casual') {
-        if (this.aim.power >= 0.015) this.shoot();
-        else {
-          this.aim.power = 0;
-          this.syncView();
-        }
-        return;
-      }
-      // let go mid-push: struck where the finger left off, if it was really going forward
-      if (p.forward && p.forward.length > 2 && p.back - p.forward[p.forward.length - 1].pull > p.back * 0.5) {
-        return this.strike(judgeStroke(this.cueing as 'club' | 'pro', p.forward, p.h * 0.9));
-      }
-      this.aim.power = 0;
-      this.syncView();
-      if (p.back > 0.04) this.flash('Push the cue back up through the ball to play the shot');
-    };
-    power.addEventListener('pointerup', release);
-    power.addEventListener('pointercancel', release);
+    power.addEventListener('pointermove', (e) => this.strokeMove(e.clientX, e.clientY));
+    power.addEventListener('pointerup', () => this.strokeEnd());
+    power.addEventListener('pointercancel', () => this.strokeEnd());
 
     // fine aim: a wheel nudging the cue by fractions of a degree
     const fine = this.$['fine'];
@@ -753,13 +781,16 @@ export class TableScreen {
     else if (seat === 'ai') h = `${esc(this.names[this.turn])} is thinking…`;
     else if (seat === 'remote') h = `${esc(this.names[this.turn])} is lining up…`;
     else {
-      const aim = this.view.mode === 'top' ? 'Drag on the table to aim' : this.view.mode === 'sight' ? 'Looking down the cue: drag left/right to fine-tune' : 'Drag left/right to aim, up/down to tilt';
+      const mouse = matchMedia('(pointer: fine)').matches;
+      const drag = mouse ? 'Right-drag' : 'Drag';
+      const aim = this.view.mode === 'top' ? `${drag} on the table to aim` : this.view.mode === 'sight' ? `Looking down the cue: ${drag.toLowerCase()} left/right to fine-tune` : `${drag} left/right to aim${mouse ? '' : ', up/down to tilt'}`;
+      const pull = mouse ? 'hold the left button and pull the mouse back' : 'pull the power bar down';
       const strike =
         this.cueing === 'club'
-          ? 'pull the cue back to your power, then push it up smoothly and straight (Space twice: stop the meter on the mark)'
+          ? `${pull} to your power, then push forward smoothly and straight`
           : this.cueing === 'pro'
-            ? 'pull back, then push up: the faster the push, the harder the hit'
-            : 'pull the power bar to shoot';
+            ? `${pull}, then push forward: the faster the push, the harder the hit`
+            : `${pull} and let go to shoot`;
       h = (f.inHand ? 'Ball in hand: drag the cue ball to place it · ' : '') + `${aim} · ${strike}`;
     }
     this.$['hint'].textContent = h;

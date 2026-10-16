@@ -27,6 +27,11 @@ the Node server runs the TypeScript directly. See README.md for the file map.
 - Cueing (`src/play/stroke.ts`, pure, unit-tested): casual / club / pro turn the player's
   stroke into the shot's power and an aim error in the browser; the server only sees the
   resulting shot, so it needs no changes per mode. Online, the host picks it (`RoomSettings`).
+- Input: a mouse strikes with the left button anywhere on the table (pull back, push forward)
+  and aims with the right; touch aims on the table and strikes on the power bar. Both feed the
+  one stroke tracker in `table-screen.ts`. Overlays on `#ui` must keep `pointer-events: none`
+  with a selector at least as specific as `#ui > *`, or they silently eat every click meant for
+  the canvas (happened: e2e now drags on the table itself to catch it).
 - Table meshes are built from the physics geometry (`src/render/table.ts`). Outlines with pocket
   openings are walked round the rectangle (`outline()`), never sorted by angle (that zig-zags at the
   corners); cushions are built face by face, never extruded with a bevel (it folds at the jaws).

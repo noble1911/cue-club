@@ -94,8 +94,9 @@ function home(): void {
       <details class="how">
         <summary>How to play</summary>
         <ul>
-          <li><b>Aim:</b> drag left/right on the table (up/down tilts the view). In the overhead view, drag to point the cue. Arrow keys work too; hold Shift for fine aim.</li>
-          <li><b>Shoot:</b> drag the power bar down to pull the cue back and let go. Or ↑/↓ to set power, Space to shoot.</li>
+          <li><b>With a mouse:</b> <b>right-drag</b> to aim (up/down tilts the view), and <b>hold the left button and pull the mouse back</b> to draw the cue: let go to shoot (Casual), or push the mouse forward through the ball (Club, Pro).</li>
+          <li><b>On a touch screen:</b> drag on the table to aim, and pull the power bar down to shoot (push it back up in Club and Pro). The <b>Fine</b> wheel nudges the aim.</li>
+          <li><b>Keys:</b> arrows aim (Shift for fine) and set power, Space shoots (Club and Pro: Space starts the meter, Space again strikes).</li>
           <li><b>Spin:</b> click the cue ball (bottom left) where you want to hit it: low for screw, high for follow, sides for side. W A S D too.</li>
           <li><b>Ball in hand:</b> drag the cue ball to place it, then aim.</li>
           <li><b>V</b> (or the View button) switches camera: behind the cue, <b>sight</b> (looking down the cue, the way you'd aim without a guide), and overhead. Tap during a shot to speed it up.</li>

@@ -85,7 +85,9 @@ input:focus, select:focus { outline: 2px solid var(--brass-dim); outline-offset:
 body.offline::after { content: 'Reconnecting…'; position: fixed; top: 10px; left: 50%; transform: translateX(-50%); background: #5a1d17; padding: 6px 12px; border-radius: 8px; font-size: 13px; }
 
 /* ---------------------------------------------------------------- table screen */
-.table-screen { position: absolute; inset: 0; pointer-events: none; }
+/* (#ui > .table-screen, not .table-screen: `#ui > *` above would win and swallow every click
+   meant for the table underneath) */
+#ui > .table-screen { position: absolute; inset: 0; pointer-events: none; }
 .table-screen > * { pointer-events: auto; }
 .hud { position: absolute; top: 12px; left: 12px; right: 12px; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr) minmax(0, 1fr); gap: 10px; align-items: start; pointer-events: none; }
 .pcard { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 9px 13px; display: grid; grid-template-columns: 1fr auto; grid-template-areas: 'name frames' 'detail detail'; gap: 3px 10px; transition: border-color 0.2s, box-shadow 0.2s; min-width: 0; }

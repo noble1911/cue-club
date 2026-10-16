@@ -104,6 +104,38 @@ try {
     check(/off line/.test(msg) && (await club.evaluate(() => window.__cue.view.isPlaying)), `club cueing: a drifting push is played, off line ("${msg}")`);
   }
 
+  // ------------------------------------------------------------ a mouse on a PC: left strikes, right aims
+  const pc = await newPage('pc');
+  await pc.click('.game[data-v="uk8"]');
+  await pc.click('.modes button[data-m="local"]');
+  await pc.click('.cue button[data-c="pro"]');
+  await pc.click('.go');
+  await sleep(1200);
+  {
+    const ang = () => pc.evaluate(() => Math.atan2(window.__cue.view.aim.dy, window.__cue.view.aim.dx));
+    const a0 = await ang();
+    await pc.mouse.move(700, 400);
+    await pc.mouse.down({ button: 'right' });
+    await pc.mouse.move(760, 400, { steps: 5 });
+    await pc.mouse.up({ button: 'right' });
+    check(Math.abs((await ang()) - a0) > 0.05 && !(await pc.evaluate(() => window.__cue.view.isPlaying)), 'mouse: right-drag aims without shooting');
+    await pc.mouse.move(600, 300);
+    await pc.mouse.down();
+    await pc.mouse.move(600, 306);
+    await pc.mouse.up();
+    await sleep(200);
+    check(!(await pc.evaluate(() => window.__cue.view.isPlaying)), 'mouse: a 6 px twitch of the left button does not shoot');
+    await pc.mouse.move(600, 300);
+    await pc.mouse.down();
+    await pc.mouse.move(600, 520, { steps: 8 });
+    await sleep(120);
+    for (let i = 1; i <= 6; i++) await pc.mouse.move(600, 520 - (222 * i) / 6);
+    await pc.mouse.up();
+    await sleep(300);
+    check(await pc.evaluate(() => window.__cue.view.isPlaying), 'mouse: hold left, pull back, push forward strikes (pro)');
+    await shot(pc, 'mouse-stroke');
+  }
+
   // ------------------------------------------------------------ online knockout, three players
   const ann = await newPage('Ann', 1100, 700);
   await ann.click('.game[data-v="nine"]');
