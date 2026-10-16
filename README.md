@@ -14,6 +14,10 @@ two plays a match, three to eight play a **knockout tournament** (byes as needed
 waiting can watch any table live. Matches can be a single frame or first to 2, 3 or 5. Online, the
 room's host sets the aim guide (full, short or off) for everyone.
 
+Sound is synthesised from the physics (ball clicks, cushions, the cue tip, pockets with a ball
+return or a net, cloth rumble), panned to where it happens, with each room's echo and ambience and
+snooker applause. Volume and ambience are in the pause menu.
+
 Each game has its own room: snooker in a panelled club, UK 8-ball in a pub, US 8-ball and 9-ball in
 a neon-lit pool hall.
 

@@ -13,6 +13,7 @@ import type { GuideLength, TableView } from '../render/view.ts';
 import { think } from './ai-client.ts';
 import { judgeMeter, judgeStroke, type Cueing, type StrokeSample } from './stroke.ts';
 import { el, esc, store } from '../ui/dom.ts';
+import { themeFor } from '../render/room.ts';
 import { binds, controlsTable, hasMouse, keyLayout, layoutSwitch, normKey, setKeyLayout, type KeyLayout } from '../ui/controls.ts';
 
 export type SeatKind = 'human' | 'ai' | 'remote';
@@ -111,6 +112,8 @@ export class TableScreen {
             <button class="p-resume primary">Resume</button>
             <button class="p-help">Controls</button>
             <button class="p-sound"></button>
+            <label class="p-vol">Volume <input type="range" min="0" max="100" step="1"></label>
+            <button class="p-amb"></button>
             <button class="p-concede">Concede frame</button>
             <button class="p-quit">Leave table</button>
           </div>
@@ -124,6 +127,7 @@ export class TableScreen {
     const cam = store.get('camera');
     this.view.mode = cam === 'top' || cam === 'sight' ? cam : 'aim';
     this.view.setVariant(rulesOf(this.match));
+    sound.setTheme(themeFor(this.match.setup.variant));
     this.view.setBalls(this.match.frame.balls);
     this.view.snapCamera();
     this.bindInput();
@@ -320,7 +324,7 @@ export class TableScreen {
     this.view.placing = null;
     await this.view.strike();
     if (this.disposed) return;
-    sound.cue(shot.power);
+    sound.cue(shot.power, this.view.panFor(0));
     let result;
     let next: Match;
     if (after) {
@@ -332,13 +336,25 @@ export class TableScreen {
       result = out.result;
       next = out.match;
     }
-    await this.view.play(result, (e) => sound.event(e));
+    await this.view.play(result, (e) => sound.event(e, this.view.panFor(e.a)));
     this.view.aim = null;
     if (this.disposed) return;
     this.match = next;
     this.view.setBalls(next.frame.balls);
     this.busy = false;
+    this.cheer(before, next);
     this.beginTurn();
+  }
+
+  /** Applause where it's due: snooker breaks of 50 and 100, frames; any match won. */
+  private cheer(before: Match, after: Match): void {
+    const was = before.frame.brk;
+    const now = after.frame.brk;
+    if (after.winner !== null && before.winner === null) return sound.applause(1);
+    if (this.rules.id !== 'snooker') return;
+    if (after.frame.over && !before.frame.over) return sound.applause(0.75);
+    if (was < 100 && now >= 100) return sound.applause(1);
+    if (was < 50 && now >= 50) return sound.applause(0.5);
   }
 
   private async runAi(): Promise<void> {
@@ -760,7 +776,22 @@ export class TableScreen {
     }
     this.dom.querySelector('.p-resume')!.addEventListener('click', () => this.togglePause(false));
     this.$['p-sound'].addEventListener('click', () => {
+      sound.unlock();
       sound.setMuted(!sound.muted);
+      this.refreshTools();
+    });
+    const vol = this.dom.querySelector('.p-vol input') as HTMLInputElement;
+    vol.value = String(Math.round(sound.volume * 100));
+    vol.addEventListener('input', () => {
+      sound.unlock();
+      sound.setVolume(Number(vol.value) / 100);
+      if (sound.muted && Number(vol.value) > 0) sound.setMuted(false);
+      this.refreshTools();
+    });
+    vol.addEventListener('change', () => sound.cue(0.5));
+    this.dom.querySelector('.p-amb')!.addEventListener('click', () => {
+      sound.unlock();
+      sound.setAmbience(!sound.ambience);
       this.refreshTools();
     });
     this.$['p-concede'].addEventListener('click', () => {
@@ -870,6 +901,8 @@ export class TableScreen {
     this.$['t-guide'].title = this.o.guide ? 'Set by the room host' : 'Aim guide';
     this.$['t-cam'].textContent = this.view.mode === 'top' ? '⤢ Overhead' : this.view.mode === 'sight' ? '⤢ Sight' : '⤢ Cue view';
     this.$['p-sound'].textContent = sound.muted ? 'Sound: off' : 'Sound: on';
+    const amb = this.dom.querySelector('.p-amb');
+    if (amb) amb.textContent = sound.ambience ? 'Room ambience: on' : 'Room ambience: off';
     const canConcede = this.o.seats.includes('human') && !this.match.frame.over;
     this.$['p-concede'].classList.toggle('hidden', !canConcede);
   }

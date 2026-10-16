@@ -138,6 +138,8 @@ body.offline::after { content: 'Reconnecting…'; position: fixed; top: 10px; le
 .panel p { margin: 0; color: var(--muted); }
 .panel .big { font-family: var(--serif); font-size: 40px; }
 .panel .frames { font-size: 15px; }
+.p-vol { display: flex; align-items: center; gap: 10px; justify-content: center; color: var(--muted); font-size: 14px; }
+.p-vol input { width: 160px; accent-color: var(--brass); }
 .panel .row { display: flex; gap: 8px; justify-content: center; margin-top: 8px; flex-wrap: wrap; }
 
 @media (max-width: 760px) {

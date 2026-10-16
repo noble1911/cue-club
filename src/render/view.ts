@@ -136,6 +136,17 @@ export class TableView {
   /** Zoom in aim mode: distance multiplier. */
   zoom = 1;
   onRender: ((dt: number) => void) | null = null;
+  /** How much is rolling (sum of ball speeds, m/s) while a shot plays: the cloth rumble. */
+  onRolling: ((level: number) => void) | null = null;
+  private rolling = 0;
+
+  /** Where ball `id` is across the screen, −1 (left) … 1 (right), for stereo sound. */
+  panFor(id: number): number {
+    const m = this.balls[id];
+    if (!m) return 0;
+    const p = m.position.clone().project(this.camera);
+    return Number.isFinite(p.x) ? Math.max(-1, Math.min(1, p.x)) : 0;
+  }
 
   constructor(container: HTMLElement) {
     this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
@@ -387,6 +398,10 @@ export class TableView {
     this.aim = null;
     this.placing = null;
     this.zoomHold = false;
+    if (this.rolling) {
+      this.rolling = 0;
+      this.onRolling?.(0);
+    }
     p?.resolve();
     s?.resolve();
   }
@@ -467,6 +482,16 @@ export class TableView {
     const a = frames[Math.floor(target)];
     const b = frames[Math.min(frames.length - 1, Math.floor(target) + 1)];
     const k = target - Math.floor(target);
+    // rolling: how fast everything still on the cloth is going (frame to frame)
+    let speed = 0;
+    for (let i = 0; i < this.balls.length; i++) {
+      if (!this.balls[i].visible || this.pots.some((x) => x.id === i)) continue;
+      const dx = b[i * 5] - a[i * 5];
+      const dy = b[i * 5 + 1] - a[i * 5 + 1];
+      speed += Math.sqrt(dx * dx + dy * dy) / FRAME_DT;
+    }
+    this.rolling = speed;
+    this.onRolling?.(speed);
     for (let i = 0; i < this.balls.length; i++) {
       if (this.pots.some((x) => x.id === i)) continue;
       const x = a[i * 5] + (b[i * 5] - a[i * 5]) * k;
@@ -483,6 +508,8 @@ export class TableView {
     }
     if (target >= frames.length - 1 && p.ev >= events.length) {
       this.playing = null;
+      this.rolling = 0;
+      this.onRolling?.(0);
       p.resolve();
     }
   }

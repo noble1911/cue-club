@@ -3,6 +3,7 @@
 
 import './style.css';
 import { TableView } from './render/view.ts';
+import { themeFor } from './render/room.ts';
 import { TableScreen, type SeatKind } from './play/table-screen.ts';
 import { newMatch, VARIANTS, VARIANT_IDS, type Match } from './sim/game.ts';
 import { Rng } from './sim/rng.ts';
@@ -19,6 +20,7 @@ import { sound } from './audio.ts';
 const stage = document.getElementById('stage')!;
 const ui = document.getElementById('ui')!;
 const view = new TableView(stage);
+view.onRolling = (level) => sound.setRolling(level);
 
 type Mode = 'ai' | 'local' | 'online';
 const GUIDE_NAMES: Record<GuideSetting, string> = { full: 'Full', short: 'Short', off: 'Off' };
@@ -47,6 +49,7 @@ let panel: HTMLElement | null = null;
 function showBackdrop(variant: VariantId): void {
   const rules = VARIANTS[variant];
   view.setVariant(rules);
+  sound.setTheme(themeFor(variant));
   view.setBalls(rules.rack(new Rng(7)));
   view.aim = null;
   view.placing = null;
@@ -495,4 +498,4 @@ if (resumeSeat && new URLSearchParams(location.search).get('room') === resumeSea
 }
 
 // for browser tests: what's on the table
-(window as any).__cue = { match: () => screen?.match ?? null, room: () => online?.room ?? null, view };
+(window as any).__cue = { match: () => screen?.match ?? null, room: () => online?.room ?? null, view, sound };

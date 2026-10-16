@@ -32,6 +32,12 @@ the Node server runs the TypeScript directly. See README.md for the file map.
   one stroke tracker in `table-screen.ts`. Overlays on `#ui` must keep `pointer-events: none`
   with a selector at least as specific as `#ui > *`, or they silently eat every click meant for
   the canvas (happened: e2e now drags on the table itself to catch it).
+- Sound (`src/audio.ts`) is synthesised: each sound is rendered once into buffers from damped
+  modes (ball ~3-7 kHz, cushion ~120-700 Hz, tip, pocket), then every impact replays one with
+  loudness/brightness from the impact speed and stereo pan from the ball's place on screen
+  (`view.panFor`). Cloth rumble follows `view.onRolling`; each room theme sets the echo, the
+  pocket (net for snooker, ball return for pool) and the ambience. A limiter and a 28-voice cap
+  keep breaks clean. Recorded samples could replace any buffer later.
 - Table meshes are built from the physics geometry (`src/render/table.ts`). Outlines with pocket
   openings are walked round the rectangle (`outline()`), never sorted by angle (that zig-zags at the
   corners); cushions are built face by face, never extruded with a bevel (it folds at the jaws).
