@@ -13,6 +13,7 @@ import type { GuideLength, TableView } from '../render/view.ts';
 import { think } from './ai-client.ts';
 import { judgeMeter, judgeStroke, type Cueing, type StrokeSample } from './stroke.ts';
 import { el, esc, store } from '../ui/dom.ts';
+import { binds, controlsTable, hasMouse, keyLayout, layoutSwitch, normKey, setKeyLayout, type KeyLayout } from '../ui/controls.ts';
 
 export type SeatKind = 'human' | 'ai' | 'remote';
 
@@ -95,6 +96,7 @@ export class TableScreen {
           <div class="power-track"><div class="power-fill"></div><div class="power-target"></div></div><span class="power-pct">Power</span>
         </div>
         <div class="tools">
+ <button class="t-help" title="Controls (H)">? Controls</button>
           <button class="t-zoom" title="Hold to zoom in on the contact point (hold Z)">🔍 Zoom</button>
           <button class="t-cam" title="Camera (V)">⤢ View</button>
           <button class="t-guide" title="Aim guide">◎ Guide</button>
@@ -102,17 +104,19 @@ export class TableScreen {
         </div>
         <div class="hint"></div>
         <div class="banner hidden"></div>
+        <div class="controls-panel hidden"></div>
         <div class="pause hidden">
           <div class="panel">
             <h2>Paused</h2>
             <button class="p-resume primary">Resume</button>
+            <button class="p-help">Controls</button>
             <button class="p-sound"></button>
             <button class="p-concede">Concede frame</button>
             <button class="p-quit">Leave table</button>
           </div>
         </div>
       </div>`);
-    for (const k of ['hmsg', 'hon', 'htitle', 'hint', 'banner', 'pause', 'spin-dot', 'power-fill', 'power-pct', 'power-target', 'fine', 'fine-grip', 'power', 'spin', 'p-sound', 'p-concede', 't-guide', 't-cam']) {
+    for (const k of ['hmsg', 'hon', 'htitle', 'hint', 'banner', 'pause', 'controls-panel', 'spin-dot', 'power-fill', 'power-pct', 'power-target', 'fine', 'fine-grip', 'power', 'spin', 'p-sound', 'p-concede', 't-guide', 't-cam']) {
       this.$[k] = this.dom.querySelector('.' + k)!;
     }
     o.root.appendChild(this.dom);
@@ -359,16 +363,17 @@ export class TableScreen {
     if (this.disposed) return;
     if (this.myTurn) {
       const fine = (this.keys.has('Shift') ? 0.08 : 1) * (this.view.mode === 'sight' ? 0.35 : 1);
+      const b = binds();
       let turn = 0;
-      if (this.keys.has('ArrowLeft')) turn += 1;
-      if (this.keys.has('ArrowRight')) turn -= 1;
+      if (this.keys.has(b.aimLeft)) turn += 1;
+      if (this.keys.has(b.aimRight)) turn -= 1;
       if (turn) {
         // in the aim view, left turns the cue left (anticlockwise seen from above)
         this.setAimAngle(this.aimAngle + turn * dt * 0.6 * fine);
         this.syncView();
       }
-      if ((this.keys.has('ArrowUp') || this.keys.has('ArrowDown')) && !this.meter) {
-        const d = (this.keys.has('ArrowUp') ? 1 : -1) * dt * 0.5 * fine;
+      if ((this.keys.has(b.powerUp) || this.keys.has(b.powerDown)) && !this.meter) {
+        const d = (this.keys.has(b.powerUp) ? 1 : -1) * dt * 0.5 * fine;
         if (this.cueing === 'club') this.target = clamp(this.target + d, 0.02, 1);
         else if (this.cueing === 'casual') this.aim.power = clamp(this.aim.power + d, 0, 1);
         this.syncView();
@@ -606,14 +611,19 @@ export class TableScreen {
     // keys
     const onKey = (e: KeyboardEvent) => {
       if ((e.target as HTMLElement)?.tagName === 'INPUT') return;
+      const key = normKey(e.key);
       if (e.type === 'keyup') {
-        if (e.key === 'z' || e.key === 'Z') this.view.zoomHold = false;
-        return void this.keys.delete(e.key);
+        if (key === 'z') this.view.zoomHold = false;
+        return void this.keys.delete(key);
       }
-      this.keys.add(e.key);
-      if (e.key === 'z' || e.key === 'Z') this.view.zoomHold = true;
-      if (e.key === 'Escape') this.togglePause();
-      if (e.key === 'v' || e.key === 'V') this.toggleCamera();
+      this.keys.add(key);
+      if (key === 'z') this.view.zoomHold = true;
+      if (key === 'Escape') {
+        if (!this.$['controls-panel'].classList.contains('hidden')) return this.toggleControls(false);
+        this.togglePause();
+      }
+      if (key === 'v') this.toggleCamera();
+      if (key === 'h' || key === '?') this.toggleControls();
       if (!this.myTurn) {
         if (e.key === ' ' && this.view.isPlaying) this.view.hurry();
         return;
@@ -631,13 +641,14 @@ export class TableScreen {
         const at = this.meterValue();
         this.meter = null;
         return this.strike(judgeMeter(this.cueing as 'club' | 'pro', this.target, at));
-      } else if (e.key.startsWith('Arrow')) e.preventDefault();
-      else if ('wasdWASD'.includes(e.key) && e.key.length === 1) {
-        const k = e.key.toLowerCase();
-        if (k === 'w') this.aim.height = clamp(this.aim.height + step, -1, 1);
-        if (k === 's') this.aim.height = clamp(this.aim.height - step, -1, 1);
-        if (k === 'a') this.aim.side = clamp(this.aim.side - step, -1, 1);
-        if (k === 'd') this.aim.side = clamp(this.aim.side + step, -1, 1);
+      }
+      if (key.startsWith('Arrow')) e.preventDefault();
+      const b = binds();
+      if ([b.spinUp, b.spinDown, b.spinLeft, b.spinRight].includes(key)) {
+        if (key === b.spinUp) this.aim.height = clamp(this.aim.height + step, -1, 1);
+        if (key === b.spinDown) this.aim.height = clamp(this.aim.height - step, -1, 1);
+        if (key === b.spinLeft) this.aim.side = clamp(this.aim.side - step, -1, 1);
+        if (key === b.spinRight) this.aim.side = clamp(this.aim.side + step, -1, 1);
         this.syncView();
       }
     };
@@ -670,6 +681,26 @@ export class TableScreen {
       this.refreshTools();
     });
     this.dom.querySelector('.t-menu')!.addEventListener('click', () => this.togglePause());
+    this.dom.querySelector('.t-help')!.addEventListener('click', () => this.toggleControls());
+    this.dom.querySelector('.p-help')!.addEventListener('click', () => {
+      this.togglePause(false);
+      this.toggleControls(true);
+    });
+    this.$['controls-panel'].addEventListener('click', (e) => {
+      const t = e.target as HTMLElement;
+      if (t === this.$['controls-panel'] || t.closest('.ctl-close')) return this.toggleControls(false);
+      const layout = t.closest<HTMLElement>('[data-layout]')?.dataset.layout as KeyLayout | undefined;
+      if (layout) {
+        setKeyLayout(layout);
+        this.keys.clear();
+        this.renderControls();
+      }
+    });
+    // the first game on this device: show the controls once
+    if (!store.get('seenControls') && this.o.seats.includes('human')) {
+      store.set('seenControls', '1');
+      this.toggleControls(true);
+    }
     this.dom.querySelector('.p-resume')!.addEventListener('click', () => this.togglePause(false));
     this.$['p-sound'].addEventListener('click', () => {
       sound.setMuted(!sound.muted);
@@ -710,6 +741,24 @@ export class TableScreen {
     if (Math.hypot(p.x - c.x, p.y - c.y) < 0.01) return;
     this.setAimAngle(Math.atan2(p.y - c.y, p.x - c.x));
     this.syncView();
+  }
+
+  private renderControls(): void {
+    const mouse = hasMouse();
+    this.$['controls-panel'].innerHTML = `<div class="panel ctl-panel">
+      <h2>Controls</h2>
+      <p class="muted">${this.cueing === 'casual' ? 'Casual' : this.cueing === 'club' ? 'Club' : 'Pro'} cueing · ${mouse ? 'mouse &amp; keyboard' : 'touch'}</p>
+      ${controlsTable(this.cueing, mouse)}
+      ${mouse ? layoutSwitch(keyLayout()) : ''}
+      <button class="ctl-close primary">Got it</button>
+    </div>`;
+  }
+
+  private toggleControls(show?: boolean): void {
+    const p = this.$['controls-panel'];
+    const on = show ?? p.classList.contains('hidden');
+    if (on) this.renderControls();
+    p.classList.toggle('hidden', !on);
   }
 
   private toggleCamera(): void {

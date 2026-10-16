@@ -130,7 +130,7 @@ body.offline::after { content: 'Reconnecting…'; position: fixed; top: 10px; le
 
 .tools { position: absolute; right: 16px; bottom: 16px; display: flex; gap: 6px; }
 .tools button { background: var(--panel); font-size: 13px; padding: 8px 11px; }
-.hint { position: absolute; left: 50%; bottom: 20px; transform: translateX(-50%); max-width: min(560px, calc(100% - 380px)); text-align: center; font-size: 13px; color: var(--muted); text-shadow: 0 1px 4px #000; pointer-events: none; }
+.hint { position: absolute; left: 50%; bottom: 64px; transform: translateX(-50%); max-width: min(560px, calc(100% - 380px)); text-align: center; font-size: 13px; color: var(--muted); text-shadow: 0 1px 4px #000; pointer-events: none; }
 
 .banner, .pause { position: absolute; inset: 0; display: grid; place-items: center; background: rgba(0, 0, 0, 0.35); padding: 16px; }
 .panel { background: var(--panel); border: 1px solid var(--brass-dim); border-radius: 18px; padding: 24px 28px; min-width: min(340px, 100%); max-width: 460px; text-align: center; display: flex; flex-direction: column; gap: 10px; box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6); backdrop-filter: blur(6px); }
@@ -159,4 +159,23 @@ body.offline::after { content: 'Reconnecting…'; position: fixed; top: 10px; le
   .tools { right: 8px; left: 8px; bottom: 8px; justify-content: flex-end; }
   .hint { display: none; }
   .room-badge { left: 8px; bottom: 8px; }
+}
+
+/* controls list (in game and on the menu) */
+.controls-panel { position: absolute; inset: 0; display: grid; place-items: center; background: rgba(0, 0, 0, 0.35); padding: 16px; }
+.ctl-panel { max-width: 640px; text-align: left; max-height: calc(100vh - 32px); overflow-y: auto; }
+.ctl-panel h2, .ctl-panel > p { text-align: center; }
+.ctl { width: 100%; border-collapse: collapse; font-size: 14px; }
+.ctl th { text-align: left; vertical-align: top; color: var(--brass); font-weight: 600; padding: 7px 12px 7px 0; white-space: nowrap; }
+.ctl td { padding: 7px 0; color: var(--ink); line-height: 1.5; }
+.ctl tr + tr th, .ctl tr + tr td { border-top: 1px solid var(--line); }
+kbd { display: inline-block; min-width: 22px; padding: 1px 6px; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 6px; background: rgba(255, 255, 255, 0.08); font: 12px var(--sans); text-align: center; color: #fff; }
+.layout-switch { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; font-size: 13px; color: var(--muted); padding-top: 4px; }
+.layout-switch .seg button { font-size: 13px; padding: 6px 10px; }
+.layout-switch .seg button.on { border-color: var(--brass); background: rgba(216, 178, 106, 0.18); color: #fff; }
+.how-body { margin-top: 8px; display: flex; flex-direction: column; gap: 10px; }
+.how .ctl { font-size: 13px; }
+@media (max-width: 760px) {
+  .ctl th { white-space: normal; }
+  .tools .t-help { display: none; }
 }

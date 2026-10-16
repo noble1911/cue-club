@@ -36,6 +36,12 @@ async function newPage(name, width = 1280, height = 800) {
   return page;
 }
 
+/** The first game in a browser shows the controls: check it did, and close it as a player would. */
+async function dismissControls(page, name) {
+  const shown = await page.waitForSelector('.controls-panel:not(.hidden)', { timeout: 3000 }).then(() => true, () => false);
+  if (shown) await page.click('.ctl-close');
+  return shown;
+}
 const myTurn = (p) => p.$eval('.table-screen', (e) => e.classList.contains('my-turn')).catch(() => false);
 async function pullAndShoot(p, amount) {
   const box = await p.$eval('.power-track', (e) => {
@@ -62,6 +68,7 @@ try {
   await solo.click('.modes button[data-m="ai"]');
   await solo.click('.lvl button[data-l="easy"]');
   await solo.click('.go');
+  check(await dismissControls(solo), 'first game: the controls list opens by itself');
   let mine = 0;
   for (let i = 0; i < 40 && mine < 2; i++) {
     await sleep(800);
@@ -82,6 +89,7 @@ try {
   await club.click('.modes button[data-m="local"]');
   await club.click('.cue button[data-c="club"]');
   await club.click('.go');
+  await dismissControls(club);
   await sleep(1200);
   {
     const b = await club.$eval('.power-track', (e) => {
@@ -110,6 +118,7 @@ try {
   await pc.click('.modes button[data-m="local"]');
   await pc.click('.cue button[data-c="pro"]');
   await pc.click('.go');
+  await dismissControls(pc);
   await sleep(1200);
   {
     const ang = () => pc.evaluate(() => Math.atan2(window.__cue.view.aim.dy, window.__cue.view.aim.dx));
@@ -159,6 +168,7 @@ try {
   await shot(ann, 'online-lobby');
   await ann.click('.start');
   await sleep(1500);
+  for (const p of Object.values(players)) await dismissControls(p).catch(() => {});
   let played = 0;
   for (let i = 0; i < 30 && played < 3; i++) {
     await sleep(1000);

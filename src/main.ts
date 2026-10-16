@@ -13,6 +13,7 @@ import { GUIDE_SETTINGS, MAX_PLAYERS, type GuideSetting, type RoomView, type Ser
 import { roundName } from './net/tournament.ts';
 import { el, esc, session, store } from './ui/dom.ts';
 import { CUEINGS, type Cueing } from './play/stroke.ts';
+import { controlsTable, hasMouse, layoutSwitch, setKeyLayout, type KeyLayout } from './ui/controls.ts';
 import { sound } from './audio.ts';
 
 const stage = document.getElementById('stage')!;
@@ -92,21 +93,26 @@ function home(): void {
       </nav>
       <section class="mode-body"></section>
       <details class="how">
-        <summary>How to play</summary>
-        <ul>
-          <li><b>With a mouse:</b> <b>right-drag</b> to aim (up/down tilts the view), and <b>hold the left button and pull the mouse back</b> to draw the cue: let go to shoot (Casual), or push the mouse forward through the ball (Club, Pro).</li>
-          <li><b>On a touch screen:</b> drag on the table to aim, and pull the power bar down to shoot (push it back up in Club and Pro). The <b>Fine</b> wheel nudges the aim.</li>
-          <li><b>Keys:</b> arrows aim (Shift for fine) and set power, Space shoots (Club and Pro: Space starts the meter, Space again strikes). <b>Hold Z</b> to zoom in on the contact point (or hold the Zoom button). The mouse wheel moves the cue view in and out.</li>
-          <li><b>Spin:</b> click the cue ball (bottom left) where you want to hit it: low for screw, high for follow, sides for side. W A S D too.</li>
-          <li><b>Ball in hand:</b> drag the cue ball to place it, then aim.</li>
-          <li><b>V</b> (or the View button) switches camera: behind the cue, <b>sight</b> (looking down the cue, the way you'd aim without a guide), and overhead. Tap during a shot to speed it up.</li>
-        </ul>
+        <summary>How to play &amp; controls</summary>
+        <div class="how-body"></div>
       </details>
     </div>`);
   const body = p.querySelector('.mode-body') as HTMLElement;
+  const how = p.querySelector('.how-body') as HTMLElement;
+  const renderHow = () => {
+    how.innerHTML = controlsTable(prefs.cueing) + (hasMouse() ? layoutSwitch() : '');
+  };
+  how.addEventListener('click', (e) => {
+    const l = (e.target as HTMLElement).closest<HTMLElement>('[data-layout]')?.dataset.layout as KeyLayout | undefined;
+    if (l) {
+      setKeyLayout(l);
+      renderHow();
+    }
+  });
   const games = p.querySelectorAll<HTMLButtonElement>('.game');
   const modes = p.querySelectorAll<HTMLButtonElement>('.modes button');
   const render = () => {
+    renderHow();
     games.forEach((b) => b.classList.toggle('on', b.dataset.v === prefs.variant));
     modes.forEach((b) => b.classList.toggle('on', b.dataset.m === prefs.mode));
     const cueing = `<label>Cueing <span class="seg cue">${CUEINGS.map((c) => `<button data-c="${c}" class="${prefs.cueing === c ? 'on' : ''}">${CUEING_NAMES[c]}</button>`).join('')}</span><small class="muted">${CUEING_BLURB[prefs.cueing]}</small></label>`;
