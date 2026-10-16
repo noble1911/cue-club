@@ -116,6 +116,12 @@ body.offline::after { content: 'Reconnecting…'; position: fixed; top: 10px; le
 
 .power { position: absolute; right: 18px; top: 50%; transform: translateY(-50%); display: flex; flex-direction: column; align-items: center; gap: 6px; touch-action: none; cursor: ns-resize; padding: 6px; }
 .power-track { width: 30px; height: min(46vh, 320px); border-radius: 15px; background: var(--panel); border: 1px solid var(--line); position: relative; overflow: hidden; }
+.power-target { position: absolute; left: -4px; right: -4px; height: 3px; margin-top: -1px; background: #fff; box-shadow: 0 0 6px rgba(255, 255, 255, 0.8); border-radius: 2px; pointer-events: none; }
+.power-target::after { content: ''; position: absolute; right: -9px; top: -4px; border: 5px solid transparent; border-right-color: #fff; }
+.fine { position: absolute; left: 18px; top: 50%; transform: translateY(-50%); display: flex; flex-direction: column; align-items: center; gap: 6px; touch-action: none; cursor: ns-resize; font-size: 11.5px; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; }
+.fine-track { width: 30px; height: min(30vh, 200px); border-radius: 15px; background: var(--panel); border: 1px solid var(--line); overflow: hidden; }
+.fine-grip { width: 100%; height: 100%; background-image: repeating-linear-gradient(180deg, rgba(216, 178, 106, 0.55) 0 2px, transparent 2px 9px); }
+.table-screen:not(.my-turn) .fine { opacity: 0.45; }
 .power-fill { position: absolute; left: 0; right: 0; top: 0; height: 0; background: linear-gradient(180deg, #8fc79f, #e3c07c 55%, #e0603f); }
 .power-pct { font-size: 11.5px; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; min-width: 44px; text-align: center; }
 .table-screen:not(.my-turn) .power, .table-screen:not(.my-turn) .spin { opacity: 0.45; }
@@ -143,6 +149,8 @@ body.offline::after { content: 'Reconnecting…'; position: fixed; top: 10px; le
   .pts { font-size: 20px; }
   .hmsg { font-size: 15px; }
   .spin { left: 10px; bottom: 58px; }
+  .fine { left: 8px; }
+  .fine-track { width: 26px; height: 24vh; }
   .spin-face { width: 72px; height: 72px; }
   .power { right: 6px; }
   .power-track { width: 26px; height: 38vh; }

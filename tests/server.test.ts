@@ -50,7 +50,7 @@ class Client {
 async function room(n: number) {
   const host = new Client();
   await host.open();
-  host.send({ t: 'create', name: 'Host', settings: { variant: 'nine', raceTo: 1, guide: 'short' } });
+  host.send({ t: 'create', name: 'Host', settings: { variant: 'nine', raceTo: 1, guide: 'short', cueing: 'club' } });
   const { code } = await host.wait('welcome');
   const others: Client[] = [];
   for (let i = 1; i < n; i++) {
@@ -73,11 +73,13 @@ function anyPlace(m: Match) {
 describe('server', () => {
   it('only the host changes the aim guide, and junk falls back to full', async () => {
     const { host, others, all } = await room(2);
-    others[0].send({ t: 'settings', settings: { variant: 'nine', raceTo: 1, guide: 'off' } });
-    host.send({ t: 'settings', settings: { variant: 'nine', raceTo: 1, guide: 'off' } });
+    others[0].send({ t: 'settings', settings: { variant: 'nine', raceTo: 1, guide: 'off', cueing: 'club' } });
+    host.send({ t: 'settings', settings: { variant: 'nine', raceTo: 1, guide: 'off', cueing: 'club' } });
     expect((await others[0].wait('room', (m) => m.room.settings.guide === 'off')).room.settings.guide).toBe('off');
-    host.send({ t: 'settings', settings: { variant: 'nine', raceTo: 1, guide: 'cheat' as any } });
-    expect((await others[0].wait('room', (m) => m.room.settings.guide === 'full')).room.settings.guide).toBe('full');
+    host.send({ t: 'settings', settings: { variant: 'nine', raceTo: 1, guide: 'cheat' as any, cueing: 'cheat' as any } });
+    const fixed = (await others[0].wait('room', (m) => m.room.settings.guide === 'full')).room.settings;
+    expect(fixed.guide).toBe('full');
+    expect(fixed.cueing).toBe('casual');
     for (const c of all) c.ws.close();
   });
 
@@ -127,7 +129,7 @@ describe('server', () => {
   it('a reload reclaims the seat with the token', async () => {
     const host = new Client();
     await host.open();
-    host.send({ t: 'create', name: 'Ann', settings: { variant: 'uk8', raceTo: 1, guide: 'full' } });
+    host.send({ t: 'create', name: 'Ann', settings: { variant: 'uk8', raceTo: 1, guide: 'full', cueing: 'casual' } });
     const w = await host.wait('welcome');
     host.ws.close();
     const again = new Client();

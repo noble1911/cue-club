@@ -19,6 +19,7 @@ import { WebSocketServer, type WebSocket } from 'ws';
 import { checkShot, cleanShot, concede, newMatch, nextFrame, takeShot, VARIANT_IDS, type Match } from '../src/sim/game.ts';
 import { Rng } from '../src/sim/rng.ts';
 import { GUIDE_SETTINGS, MAX_PLAYERS, shotNumber, type ClientMsg, type RoomSettings, type RoomView, type ServerMsg } from '../src/net/protocol.ts';
+import { CUEINGS } from '../src/play/stroke.ts';
 import { champion, makeBracket, playable, recordWinner, type Bracket } from '../src/net/tournament.ts';
 
 const ROOT = resolve(fileURLToPath(new URL('.', import.meta.url)), '..', process.env.DIST ?? 'dist');
@@ -90,7 +91,8 @@ function cleanSettings(s: any): RoomSettings {
   const variant = VARIANT_IDS.includes(s?.variant) ? s.variant : 'uk8';
   const raceTo = Math.min(5, Math.max(1, Math.floor(Number(s?.raceTo) || 1)));
   const guide = GUIDE_SETTINGS.includes(s?.guide) ? s.guide : 'full';
-  return { variant, raceTo, guide };
+  const cueing = CUEINGS.includes(s?.cueing) ? s.cueing : 'casual';
+  return { variant, raceTo, guide, cueing };
 }
 
 function view(room: Room): RoomView {

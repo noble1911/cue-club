@@ -11,6 +11,7 @@ import { shotNumber, type Aim } from '../net/protocol.ts';
 import { sound } from '../audio.ts';
 import type { GuideLength, TableView } from '../render/view.ts';
 import { think } from './ai-client.ts';
+import { judgeMeter, judgeStroke, type Cueing, type StrokeSample } from './stroke.ts';
 import { el, esc, store } from '../ui/dom.ts';
 
 export type SeatKind = 'human' | 'ai' | 'remote';
@@ -25,6 +26,8 @@ export interface TableScreenOptions {
   title?: string;
   /** Online: the room's aim guide, set by the host (the player can't change it). */
   guide?: GuideLength;
+  /** How shots are struck: casual (pick a power), club (target + stroke), pro (stroke speed). */
+  cueing?: Cueing;
   online?: {
     shot(shot: Shot, n: number): void;
     aim(aim: Aim): void;
@@ -59,6 +62,10 @@ export class TableScreen {
   private o: TableScreenOptions;
   private dom: HTMLElement;
   private aim = { dx: 1, dy: 0, power: 0, side: 0, height: 0 };
+  /** Club cueing: the power the player is going for (arrow keys, or how far they pulled back). */
+  private target = 0.4;
+  /** Keyboard club/pro: the sweeping meter, started by the first Space. */
+  private meter: { t0: number } | null = null;
   private place: { x: number; y: number } | null = null;
   private busy = false;
   private waitingForServer = false;
@@ -82,9 +89,10 @@ export class TableScreen {
           <div class="hud-mid"><div class="htitle"></div><div class="hmsg"></div><div class="hon"></div></div>
           <div class="pcard" data-p="1"><div class="pname"></div><div class="pframes"></div><div class="pdetail"></div></div>
         </div>
+        <div class="fine" title="Fine aim: drag up or down"><div class="fine-track"><div class="fine-grip"></div></div><span>Fine</span></div>
         <div class="spin" title="Where the cue strikes the cue ball (W A S D)"><div class="spin-face"><div class="spin-dot"></div></div><span>Spin</span></div>
         <div class="power" title="Drag down to pull the cue back, let go to shoot (↑ ↓ then Space)">
-          <div class="power-track"><div class="power-fill"></div></div><span class="power-pct">Power</span>
+          <div class="power-track"><div class="power-fill"></div><div class="power-target"></div></div><span class="power-pct">Power</span>
         </div>
         <div class="tools">
           <button class="t-cam" title="Camera (V)">⤢ View</button>
@@ -103,7 +111,7 @@ export class TableScreen {
           </div>
         </div>
       </div>`);
-    for (const k of ['hmsg', 'hon', 'htitle', 'hint', 'banner', 'pause', 'spin-dot', 'power-fill', 'power-pct', 'power', 'spin', 'p-sound', 'p-concede', 't-guide', 't-cam']) {
+    for (const k of ['hmsg', 'hon', 'htitle', 'hint', 'banner', 'pause', 'spin-dot', 'power-fill', 'power-pct', 'power-target', 'fine', 'fine-grip', 'power', 'spin', 'p-sound', 'p-concede', 't-guide', 't-cam']) {
       this.$[k] = this.dom.querySelector('.' + k)!;
     }
     o.root.appendChild(this.dom);
@@ -186,6 +194,7 @@ export class TableScreen {
     this.aim.power = 0;
     this.aim.side = 0;
     this.aim.height = 0;
+    this.meter = null;
     this.pointAtNearest();
     this.syncView();
     const seat = this.o.seats[this.turn];
@@ -246,7 +255,11 @@ export class TableScreen {
     }
     this.$['spin-dot'].style.transform = `translate(${this.aim.side * 34}px, ${-this.aim.height * 34}px)`;
     this.$['power-fill'].style.height = `${this.aim.power * 100}%`;
-    this.$['power-pct'].textContent = this.aim.power > 0 ? `${Math.round(this.aim.power * 100)}%` : 'Power';
+    const mode = this.cueing;
+    this.$['power-target'].style.display = mode === 'club' ? 'block' : 'none';
+    this.$['power-target'].style.top = `${this.target * 100}%`;
+    this.$['power-pct'].textContent =
+      mode === 'pro' ? 'Stroke' : mode === 'club' ? `${Math.round(this.target * 100)}%` : this.aim.power > 0 ? `${Math.round(this.aim.power * 100)}%` : 'Power';
   }
 
   // ---------------------------------------------------------------- shots
@@ -353,8 +366,14 @@ export class TableScreen {
         this.setAimAngle(this.aimAngle + turn * dt * 0.6 * fine);
         this.syncView();
       }
-      if (this.keys.has('ArrowUp') || this.keys.has('ArrowDown')) {
-        this.aim.power = clamp(this.aim.power + (this.keys.has('ArrowUp') ? 1 : -1) * dt * 0.5 * fine, 0, 1);
+      if ((this.keys.has('ArrowUp') || this.keys.has('ArrowDown')) && !this.meter) {
+        const d = (this.keys.has('ArrowUp') ? 1 : -1) * dt * 0.5 * fine;
+        if (this.cueing === 'club') this.target = clamp(this.target + d, 0.02, 1);
+        else if (this.cueing === 'casual') this.aim.power = clamp(this.aim.power + d, 0, 1);
+        this.syncView();
+      }
+      if (this.meter) {
+        this.aim.power = this.meterValue();
         this.syncView();
       }
       if (this.o.online) this.sendAim();
@@ -443,33 +462,86 @@ export class TableScreen {
       canvas.removeEventListener('wheel', onWheel);
     });
 
-    // power: drag down to pull back, release to shoot
+    // power. casual: drag down, let go. club/pro: drag down (the backswing) then push back up
+    // (the stroke), and the shot goes when the cue reaches the ball.
     const power = this.$['power'];
-    let pull: { y: number; h: number } | null = null;
+    let pull: { y: number; x: number; h: number; back: number; forward: StrokeSample[] | null } | null = null;
+    const pullAt = (e: PointerEvent) => clamp((e.clientY - pull!.y) / (pull!.h * 0.9), 0, 1);
     power.addEventListener('pointerdown', (e) => {
       sound.unlock();
       if (!this.myTurn || this.waitingForServer) return;
       power.setPointerCapture(e.pointerId);
-      pull = { y: e.clientY, h: power.querySelector('.power-track')!.getBoundingClientRect().height };
+      pull = { y: e.clientY, x: e.clientX, h: power.querySelector('.power-track')!.getBoundingClientRect().height, back: 0, forward: null };
+      this.meter = null;
       this.aim.power = 0;
       this.syncView();
     });
     power.addEventListener('pointermove', (e) => {
       if (!pull) return;
-      this.aim.power = clamp((e.clientY - pull.y) / (pull.h * 0.9), 0, 1);
+      const p = pullAt(e);
+      this.aim.power = p;
+      if (this.cueing === 'casual') return this.syncView();
+      if (!pull.forward) {
+        if (p >= pull.back) {
+          pull.back = p;
+          if (this.cueing === 'club') this.target = p;
+        } else if (pull.back - p > 0.03 && pull.back > 0.04) {
+          // the push has started
+          pull.forward = [{ t: performance.now(), x: e.clientX - pull.x, pull: pull.back }];
+        }
+      }
+      if (pull.forward) {
+        pull.forward.push({ t: performance.now(), x: e.clientX - pull.x, pull: p });
+        if (p <= 0.015) {
+          const f = pull.forward;
+          const h = pull.h;
+          pull = null;
+          return this.strike(judgeStroke(this.cueing as 'club' | 'pro', f, h * 0.9));
+        }
+      }
       this.syncView();
     });
     const release = () => {
       if (!pull) return;
+      const p = pull;
       pull = null;
-      if (this.aim.power >= 0.015) this.shoot();
-      else {
-        this.aim.power = 0;
-        this.syncView();
+      if (this.cueing === 'casual') {
+        if (this.aim.power >= 0.015) this.shoot();
+        else {
+          this.aim.power = 0;
+          this.syncView();
+        }
+        return;
       }
+      // let go mid-push: struck where the finger left off, if it was really going forward
+      if (p.forward && p.forward.length > 2 && p.back - p.forward[p.forward.length - 1].pull > p.back * 0.5) {
+        return this.strike(judgeStroke(this.cueing as 'club' | 'pro', p.forward, p.h * 0.9));
+      }
+      this.aim.power = 0;
+      this.syncView();
+      if (p.back > 0.04) this.flash('Push the cue back up through the ball to play the shot');
     };
     power.addEventListener('pointerup', release);
     power.addEventListener('pointercancel', release);
+
+    // fine aim: a wheel nudging the cue by fractions of a degree
+    const fine = this.$['fine'];
+    let fineFrom: { y: number; angle: number } | null = null;
+    fine.addEventListener('pointerdown', (e) => {
+      if (!this.myTurn || this.waitingForServer) return;
+      fine.setPointerCapture(e.pointerId);
+      fineFrom = { y: e.clientY, angle: this.aimAngle };
+    });
+    fine.addEventListener('pointermove', (e) => {
+      if (!fineFrom || !this.myTurn) return;
+      const dy = e.clientY - fineFrom.y;
+      this.setAimAngle(fineFrom.angle - dy * 0.00013);
+      this.$['fine-grip'].style.backgroundPositionY = `${dy}px`;
+      this.syncView();
+    });
+    const fineEnd = () => (fineFrom = null);
+    fine.addEventListener('pointerup', fineEnd);
+    fine.addEventListener('pointercancel', fineEnd);
 
     // spin
     const spin = this.$['spin'].querySelector('.spin-face') as HTMLElement;
@@ -516,7 +588,16 @@ export class TableScreen {
       const step = e.shiftKey ? 0.02 : 0.1;
       if (e.key === ' ') {
         e.preventDefault();
-        this.shoot();
+        if (e.repeat) return;
+        if (this.cueing === 'casual') return this.shoot();
+        // club/pro: the first press starts the meter sweeping, the second strikes
+        if (!this.meter) {
+          this.meter = { t0: performance.now() };
+          return;
+        }
+        const at = this.meterValue();
+        this.meter = null;
+        return this.strike(judgeMeter(this.cueing as 'club' | 'pro', this.target, at));
       } else if (e.key.startsWith('Arrow')) e.preventDefault();
       else if ('wasdWASD'.includes(e.key) && e.key.length === 1) {
         const k = e.key.toLowerCase();
@@ -557,6 +638,27 @@ export class TableScreen {
       this.concede();
     });
     this.dom.querySelector('.p-quit')!.addEventListener('click', () => this.o.onExit());
+  }
+
+  private get cueing(): Cueing {
+    return this.o.cueing ?? 'casual';
+  }
+
+  /** The keyboard meter: up and down the bar, 1.4 s each way. */
+  private meterValue(): number {
+    const t = (performance.now() - (this.meter?.t0 ?? 0)) / 1400;
+    const k = t % 2;
+    return k < 1 ? k : 2 - k;
+  }
+
+  /** A judged stroke: turn the cue by the error, set the power, and play it. */
+  private strike(r: { power: number; aimError: number; verdict: string; clean: boolean }): void {
+    if (!this.myTurn) return;
+    this.setAimAngle(this.aimAngle + r.aimError);
+    this.aim.power = r.power;
+    this.syncView();
+    this.shoot();
+    this.flash(r.verdict);
   }
 
   private aimAtPointer(e: PointerEvent): void {
@@ -652,7 +754,13 @@ export class TableScreen {
     else if (seat === 'remote') h = `${esc(this.names[this.turn])} is lining up…`;
     else {
       const aim = this.view.mode === 'top' ? 'Drag on the table to aim' : this.view.mode === 'sight' ? 'Looking down the cue: drag left/right to fine-tune' : 'Drag left/right to aim, up/down to tilt';
-      h = (f.inHand ? 'Ball in hand: drag the cue ball to place it · ' : '') + `${aim} · pull the power bar to shoot`;
+      const strike =
+        this.cueing === 'club'
+          ? 'pull the cue back to your power, then push it up smoothly and straight (Space twice: stop the meter on the mark)'
+          : this.cueing === 'pro'
+            ? 'pull back, then push up: the faster the push, the harder the hit'
+            : 'pull the power bar to shoot';
+      h = (f.inHand ? 'Ball in hand: drag the cue ball to place it · ' : '') + `${aim} · ${strike}`;
     }
     this.$['hint'].textContent = h;
     this.dom.classList.toggle('my-turn', this.myTurn);

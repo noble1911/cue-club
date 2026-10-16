@@ -24,6 +24,9 @@ the Node server runs the TypeScript directly. See README.md for the file map.
 - Physics feel (friction, restitution, pocket sizes, max speed) lives in `tables.ts`. Retune with
   `npm test` (pot-every-pocket, screw/follow/stun, side) and an AI-vs-AI frame
   (`chooseShot` in a loop) to check frames still finish.
+- Cueing (`src/play/stroke.ts`, pure, unit-tested): casual / club / pro turn the player's
+  stroke into the shot's power and an aim error in the browser; the server only sees the
+  resulting shot, so it needs no changes per mode. Online, the host picks it (`RoomSettings`).
 - Table meshes are built from the physics geometry (`src/render/table.ts`). Outlines with pocket
   openings are walked round the rectangle (`outline()`), never sorted by angle (that zig-zags at the
   corners); cushions are built face by face, never extruded with a bevel (it folds at the jaws).

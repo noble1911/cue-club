@@ -10,6 +10,7 @@ import type { Match } from '../sim/game.ts';
 import type { Shot } from '../sim/physics.ts';
 import type { VariantId } from '../sim/rules/types.ts';
 import type { Bracket } from './tournament.ts';
+import type { Cueing } from '../play/stroke.ts';
 
 /** How much of the aim line players see. */
 export type GuideSetting = 'full' | 'short' | 'off';
@@ -21,6 +22,8 @@ export interface RoomSettings {
   raceTo: number;
   /** The aim guide everyone in the room plays with (the host decides). */
   guide: GuideSetting;
+  /** How everyone strikes the ball: casual, club or pro (the host decides). */
+  cueing: Cueing;
 }
 
 export interface MemberView {

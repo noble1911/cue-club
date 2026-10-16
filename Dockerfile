@@ -21,6 +21,7 @@ RUN npm ci --omit=dev --no-audit --no-fund && npm cache clean --force
 COPY server ./server
 COPY src/sim ./src/sim
 COPY src/net/protocol.ts src/net/tournament.ts ./src/net/
+COPY src/play/stroke.ts ./src/play/
 COPY --from=build /app/dist ./dist
 USER node
 EXPOSE 3000

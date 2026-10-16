@@ -76,6 +76,34 @@ try {
   }
   check(mine === 2, 'vs computer: the computer took its turns and handed the table back');
 
+  // ------------------------------------------------------------ club cueing: pull back, push through
+  const club = await newPage('club');
+  await club.click('.game[data-v="nine"]');
+  await club.click('.modes button[data-m="local"]');
+  await club.click('.cue button[data-c="club"]');
+  await club.click('.go');
+  await sleep(1200);
+  {
+    const b = await club.$eval('.power-track', (e) => {
+      const r = e.getBoundingClientRect();
+      return { x: r.left + r.width / 2, y: r.top + 4, h: r.height };
+    });
+    await club.mouse.move(b.x, b.y);
+    await club.mouse.down();
+    await club.mouse.move(b.x, b.y + b.h * 0.6, { steps: 6 });
+    await club.mouse.up();
+    await sleep(300);
+    check(!(await club.evaluate(() => window.__cue.view.isPlaying)), 'club cueing: pulling back alone does not shoot');
+    await club.mouse.move(b.x, b.y);
+    await club.mouse.down();
+    await club.mouse.move(b.x, b.y + b.h * 0.6, { steps: 6 });
+    for (let i = 1; i <= 8; i++) await club.mouse.move(b.x + i * 4, b.y + b.h * 0.6 * (1 - i / 8) - (i === 8 ? 2 : 0));
+    await club.mouse.up();
+    await sleep(300);
+    const msg = await club.$eval('.hmsg', (e) => e.textContent);
+    check(/off line/.test(msg) && (await club.evaluate(() => window.__cue.view.isPlaying)), `club cueing: a drifting push is played, off line ("${msg}")`);
+  }
+
   // ------------------------------------------------------------ online knockout, three players
   const ann = await newPage('Ann', 1100, 700);
   await ann.click('.game[data-v="nine"]');

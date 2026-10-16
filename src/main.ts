@@ -12,6 +12,7 @@ import { Connection } from './net/client.ts';
 import { GUIDE_SETTINGS, MAX_PLAYERS, type GuideSetting, type RoomView, type ServerMsg } from './net/protocol.ts';
 import { roundName } from './net/tournament.ts';
 import { el, esc, session, store } from './ui/dom.ts';
+import { CUEINGS, type Cueing } from './play/stroke.ts';
 import { sound } from './audio.ts';
 
 const stage = document.getElementById('stage')!;
@@ -27,6 +28,13 @@ const prefs = {
   raceTo: Number(store.get('raceTo') ?? 1),
   name: store.get('name') ?? '',
   name2: store.get('name2') ?? '',
+  cueing: (CUEINGS as string[]).includes(store.get('cueing') ?? '') ? (store.get('cueing') as Cueing) : 'casual',
+};
+const CUEING_NAMES: Record<Cueing, string> = { casual: 'Casual', club: 'Club', pro: 'Pro' };
+const CUEING_BLURB: Record<Cueing, string> = {
+  casual: 'Pick a power and the ball goes exactly where you aimed.',
+  club: 'Pull back to your power, then push through straight: drift or snatch and it goes off line.',
+  pro: 'No meter: the speed of your push is the power. Straightness counts.',
 };
 const save = () => {
   for (const [k, v] of Object.entries(prefs)) store.set(k, String(v));
@@ -100,17 +108,20 @@ function home(): void {
   const render = () => {
     games.forEach((b) => b.classList.toggle('on', b.dataset.v === prefs.variant));
     modes.forEach((b) => b.classList.toggle('on', b.dataset.m === prefs.mode));
+    const cueing = `<label>Cueing <span class="seg cue">${CUEINGS.map((c) => `<button data-c="${c}" class="${prefs.cueing === c ? 'on' : ''}">${CUEING_NAMES[c]}</button>`).join('')}</span><small class="muted">${CUEING_BLURB[prefs.cueing]}</small></label>`;
     const race = `<label>Frames <span class="seg race">${[1, 2, 3, 5].map((n) => `<button data-r="${n}" class="${prefs.raceTo === n ? 'on' : ''}">${n === 1 ? 'Single' : `First to ${n}`}</button>`).join('')}</span></label>`;
     if (prefs.mode === 'ai') {
       body.innerHTML = `
         <label>Your name <input class="n1" maxlength="18" placeholder="You" value="${esc(prefs.name)}"></label>
         <label>Computer <span class="seg lvl">${LEVELS.map(([k, n]) => `<button data-l="${k}" class="${prefs.level === k ? 'on' : ''}">${n}</button>`).join('')}</span></label>
+        ${cueing}
         ${race}
         <button class="go primary">Play</button>`;
     } else if (prefs.mode === 'local') {
       body.innerHTML = `
         <label>Player 1 <input class="n1" maxlength="18" placeholder="Player 1" value="${esc(prefs.name)}"></label>
         <label>Player 2 <input class="n2" maxlength="18" placeholder="Player 2" value="${esc(prefs.name2)}"></label>
+        ${cueing}
         ${race}
         <button class="go primary">Play</button>`;
     } else {
@@ -128,6 +139,13 @@ function home(): void {
     body.querySelectorAll<HTMLButtonElement>('.race button').forEach((b) =>
       b.addEventListener('click', () => {
         prefs.raceTo = Number(b.dataset.r);
+        save();
+        render();
+      }),
+    );
+    body.querySelectorAll<HTMLButtonElement>('.cue button').forEach((b) =>
+      b.addEventListener('click', () => {
+        prefs.cueing = b.dataset.c as Cueing;
         save();
         render();
       }),
@@ -193,6 +211,7 @@ function playLocal(seats: [SeatKind, SeatKind], names: [string, string]): void {
     match,
     seats,
     aiLevel: prefs.level,
+    cueing: prefs.cueing,
     onExit: () => home(),
     onRematch: () => playLocal(seats, names),
   });
@@ -245,7 +264,7 @@ function goOnline(err: HTMLElement, how: { create?: boolean; code?: string; resu
   // a fresh create/join replaces any old seat in this tab
   state.conn.remember(null);
   const guide = (GUIDE_SETTINGS as string[]).includes(store.get('guide') ?? '') ? (store.get('guide') as GuideSetting) : 'full';
-  if (how.create) state.conn.send({ t: 'create', name, settings: { variant: prefs.variant, raceTo: prefs.raceTo, guide } });
+  if (how.create) state.conn.send({ t: 'create', name, settings: { variant: prefs.variant, raceTo: prefs.raceTo, guide, cueing: prefs.cueing } });
   else state.conn.send({ t: 'join', code: how.code!, name });
   (state as any).name = name;
   void status;
@@ -315,6 +334,7 @@ function watch(s: OnlineState, mid: string): void {
     seats,
     title,
     guide: s.room.settings.guide,
+    cueing: s.room.settings.cueing,
     online: {
       shot: (shot, n) => s.conn.send({ t: 'shot', mid, n, shot }),
       aim: (aim) => s.conn.send({ t: 'aim', mid, aim }),
@@ -353,8 +373,9 @@ function lobby(s: OnlineState): void {
     const settings = host
       ? `<label>Game <select class="s-var">${VARIANT_IDS.map((v) => `<option value="${v}" ${v === r.settings.variant ? 'selected' : ''}>${VARIANTS[v].name}</option>`).join('')}</select></label>
          <label>Frames <select class="s-race">${[1, 2, 3, 5].map((k) => `<option value="${k}" ${k === r.settings.raceTo ? 'selected' : ''}>${k === 1 ? 'Single frame' : `First to ${k}`}</option>`).join('')}</select></label>
-         <label>Aim guide for everyone <select class="s-guide">${GUIDE_SETTINGS.map((g) => `<option value="${g}" ${g === r.settings.guide ? 'selected' : ''}>${GUIDE_NAMES[g]}</option>`).join('')}</select></label>`
-      : `<p>${VARIANTS[r.settings.variant].name} · ${r.settings.raceTo === 1 ? 'single frame' : `first to ${r.settings.raceTo} frames`} · aim guide: ${GUIDE_NAMES[r.settings.guide].toLowerCase()}</p>`;
+         <label>Aim guide for everyone <select class="s-guide">${GUIDE_SETTINGS.map((g) => `<option value="${g}" ${g === r.settings.guide ? 'selected' : ''}>${GUIDE_NAMES[g]}</option>`).join('')}</select></label>
+         <label>Cueing for everyone <select class="s-cue">${CUEINGS.map((c) => `<option value="${c}" ${c === r.settings.cueing ? 'selected' : ''}>${CUEING_NAMES[c]}: ${CUEING_BLURB[c]}</option>`).join('')}</select></label>`
+      : `<p>${VARIANTS[r.settings.variant].name} · ${r.settings.raceTo === 1 ? 'single frame' : `first to ${r.settings.raceTo} frames`} · aim guide: ${GUIDE_NAMES[r.settings.guide].toLowerCase()} · cueing: ${CUEING_NAMES[r.settings.cueing].toLowerCase()}</p>`;
     body = `
       <div class="code-big">${r.code}</div>
       <p class="muted">Share the code, or the link: <button class="copy linkish">${esc(link)}</button></p>
@@ -387,6 +408,7 @@ function lobby(s: OnlineState): void {
   const p = el(`<div class="menu lobby"><header><h1>Cue <span>Club</span></h1></header>${body}<button class="leave">Leave room</button></div>`);
   p.querySelector('.s-var')?.addEventListener('change', (e) => s.conn.send({ t: 'settings', settings: { ...r.settings, variant: (e.target as HTMLSelectElement).value as VariantId } }));
   p.querySelector('.s-race')?.addEventListener('change', (e) => s.conn.send({ t: 'settings', settings: { ...r.settings, raceTo: Number((e.target as HTMLSelectElement).value) } }));
+  p.querySelector('.s-cue')?.addEventListener('change', (e) => s.conn.send({ t: 'settings', settings: { ...r.settings, cueing: (e.target as HTMLSelectElement).value as Cueing } }));
   p.querySelector('.s-guide')?.addEventListener('change', (e) => s.conn.send({ t: 'settings', settings: { ...r.settings, guide: (e.target as HTMLSelectElement).value as GuideSetting } }));
   p.querySelector('.start')?.addEventListener('click', () => s.conn.send({ t: 'start' }));
   p.querySelector('.again')?.addEventListener('click', () => {

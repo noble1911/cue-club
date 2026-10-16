@@ -23,7 +23,14 @@ Live at **https://games.noblehaus.uk/cue-club/**.
 
 - **Aim:** drag left/right on the table (up/down tilts the camera). In the overhead view (**V**)
   drag to point the cue. Arrow keys work too; hold Shift for fine aim.
-- **Shoot:** drag the power bar down to pull the cue back and let go. Or ↑/↓ then Space.
+- **Shoot** depends on the **cueing** setting (menu, or the host's choice online):
+  - *Casual:* drag the power bar down and let go (or ↑/↓ then Space). Exactly as aimed.
+  - *Club:* drag down to your power (the white mark), then push back up through the ball.
+    Drift sideways and the shot goes off line, more so on hard hits; snatch it and it's off;
+    decelerate and it comes up short. Keyboard: ↑/↓ set the mark, Space starts the meter, Space
+    again strikes: stop it on the mark.
+  - *Pro:* no meter. Pull back and push up: the faster the push, the harder the hit.
+- **Fine aim:** drag the wheel on the left (made for thumbs on a phone).
 - **Spin:** click the cue ball (bottom left) where you want to strike it: low = screw, high =
   follow, sides = side. W A S D nudge it.
 - **Ball in hand:** drag the cue ball to place it.
