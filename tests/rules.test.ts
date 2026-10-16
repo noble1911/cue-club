@@ -6,7 +6,8 @@ import { US8 } from '../src/sim/rules/us8.ts';
 import { NINE } from '../src/sim/rules/nine.ts';
 import { SNOOKER_RULES, SPOTS, BLACK, YELLOW } from '../src/sim/rules/snooker.ts';
 import type { Frame, Rules } from '../src/sim/rules/types.ts';
-import { newMatch, takeShot, concede, nextFrame, checkShot, canPlace } from '../src/sim/game.ts';
+import { newMatch, takeShot, concede, nextFrame, checkShot, canPlace, VARIANTS } from '../src/sim/game.ts';
+const VARIANT_TABLE = { us8: VARIANTS.us8.table, uk8: VARIANTS.uk8.table, snooker: VARIANTS.snooker.table, nine: VARIANTS.nine.table };
 
 const rng = () => new Rng(7);
 function frame(rules: Rules, patch: Partial<Frame> = {}): Frame {
@@ -164,5 +165,35 @@ describe('match', () => {
     const out = takeShot(m, ok, true);
     expect(out.match.frame.shots).toBe(1);
     expect(out.result.frames.length).toBeGreaterThan(10);
+  });
+});
+
+describe('review fixes', () => {
+  it('snooker: a foul on the last black that levels the scores re-spots it, in hand, lots drawn', () => {
+    const f = frame(SNOOKER_RULES, { rule: { phase: 'sequence' }, points: [47, 40] });
+    f.balls = f.balls.map((b) => (b.id >= 1 && b.id < BLACK ? { ...b, on: false } : b));
+    const n = judge(SNOOKER_RULES, f, { firstHit: -1 });
+    expect(n.points).toEqual([47, 47]);
+    expect(n.over).toBeNull();
+    expect(n.inHand).toBe('d');
+    expect(n.balls[BLACK].x).toBeCloseTo(SPOTS[BLACK].x);
+    expect(n.message).toMatch(/re-spotted black/);
+  });
+  it('snooker: the last red going down in a foul puts the next player on the yellow (the rules)', () => {
+    const f = frame(SNOOKER_RULES);
+    f.balls = f.balls.map((b) => (b.id >= 2 && b.id <= 15 ? { ...b, on: false } : b));
+    const n = judge(SNOOKER_RULES, f, { firstHit: 1, potted: [1, 0] });
+    expect(SNOOKER_RULES.ballsOn(n)).toEqual([YELLOW]);
+  });
+  it('no cue ball in a pocket mouth when in hand', () => {
+    for (const variant of ['us8', 'uk8', 'snooker', 'nine'] as const) {
+      const m = newMatch({ variant, raceTo: 1, names: ['A', 'B'], seed: 1 });
+      const t = { ...m, frame: { ...m.frame, inHand: 'anywhere' as const } };
+      const L = VARIANT_TABLE[variant].length / 2;
+      const W = VARIANT_TABLE[variant].width / 2;
+      const R = VARIANT_TABLE[variant].ballRadius;
+      expect(canPlace(t, L - R - 1e-6, W - R - 1e-6), variant).toBe(false);
+      expect(canPlace(t, 0.1, 0.1), variant).toBe(true);
+    }
   });
 });

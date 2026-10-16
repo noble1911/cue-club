@@ -377,6 +377,20 @@ export class TableView {
     });
   }
 
+  /** Stop whatever is playing (the table was left): the shot, the stroke, the cue and guides. */
+  cancel(): void {
+    const p = this.playing;
+    const s = this.stroke;
+    this.playing = null;
+    this.stroke = null;
+    this.pots = [];
+    this.aim = null;
+    this.placing = null;
+    this.zoomHold = false;
+    p?.resolve();
+    s?.resolve();
+  }
+
   /** Speed up the shot being played (tap to fast-forward). */
   hurry(): void {
     if (this.playing) this.playing.speed = 4;

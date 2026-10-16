@@ -76,7 +76,16 @@ export function rackPositions(t: TableSpec, apex: Vec, rows: number[]): Vec[] {
 
 export function zoneContains(t: TableSpec, zone: Zone, x: number, y: number): boolean {
   const R = t.ballRadius;
+  if (!Number.isFinite(x) || !Number.isFinite(y)) return false;
   if (Math.abs(x) > t.length / 2 - R || Math.abs(y) > t.width / 2 - R) return false;
+  // not where it would drop at once, nor touching a pocket jaw (in a pocket's mouth)
+  for (const p of t.pockets) if ((x - p.x) ** 2 + (y - p.y) ** 2 < (p.r + R * 0.5) ** 2) return false;
+  for (const s of t.cushions) {
+    const ex = s.bx - s.ax;
+    const ey = s.by - s.ay;
+    const k = Math.max(0, Math.min(1, ((x - s.ax) * ex + (y - s.ay) * ey) / (ex * ex + ey * ey)));
+    if ((x - s.ax - ex * k) ** 2 + (y - s.ay - ey * k) ** 2 < R * R) return false;
+  }
   if (zone === 'anywhere') return true;
   if (x > t.baulkX) return false;
   if (zone === 'd') return (x - t.baulkX) * (x - t.baulkX) + y * y <= t.dRadius * t.dRadius;

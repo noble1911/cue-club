@@ -216,6 +216,7 @@ function handle(ws: WebSocket, c: Conn, msg: ClientMsg): void {
         back.goneAt = 0;
         c.room = room;
         c.member = back;
+        claimHost(room, back);
         send(ws, { t: 'welcome', you: back.id, token: back.token, code: room.code });
         pushRoom(room);
         for (const lm of room.live.values()) sendMatch(room, lm, ws);
@@ -228,6 +229,7 @@ function handle(ws: WebSocket, c: Conn, msg: ClientMsg): void {
       room.members.push(member);
       c.room = room;
       c.member = member;
+      claimHost(room, member);
       send(ws, { t: 'welcome', you: member.id, token: member.token, code: room.code });
       return pushRoom(room);
     }
@@ -309,6 +311,12 @@ function leave(c: Conn, forGood = false): void {
   member.goneAt = Date.now();
   if (forGood) drop(room, member);
   else pushRoom(room);
+}
+
+/** A room whose host has gone (left, or timed out while alone) passes to whoever turns up. */
+function claimHost(room: Room, member: Member): void {
+  const host = room.members.find((m) => m.id === room.host);
+  if (!host || host.dropped) room.host = member.id;
 }
 
 /** The member is gone for good: out of the lobby, or forfeiting what they're playing. */

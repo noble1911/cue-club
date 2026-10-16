@@ -100,3 +100,12 @@ describe('physics', () => {
     expect(miss.dist).toBeCloseTo(SNOOKER.width / 2 - SNOOKER.ballRadius, 4);
   });
 });
+
+describe('throw', () => {
+  it('right-hand side throws a head-on object ball to the left (spin-induced throw)', () => {
+    const r = simulate(SNOOKER, [ball(0, -0.4, 0), ball(1, 0, 0)], { dx: 1, dy: 0, power: 0.3, side: 1, height: 0 });
+    expect(r.balls[1].y).toBeGreaterThan(0); // +y is left of a shot along +x
+    const l = simulate(SNOOKER, [ball(0, -0.4, 0), ball(1, 0, 0)], { dx: 1, dy: 0, power: 0.3, side: -1, height: 0 });
+    expect(l.balls[1].y).toBeLessThan(0);
+  });
+});

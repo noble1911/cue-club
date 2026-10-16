@@ -302,6 +302,7 @@ export class TableScreen {
     this.syncView();
     this.view.placing = null;
     await this.view.strike();
+    if (this.disposed) return;
     sound.cue(shot.power);
     let result;
     let next: Match;
@@ -330,11 +331,14 @@ export class TableScreen {
     const started = performance.now();
     const shot = await think(m, level, (m.setup.seed ^ Math.imul(m.frameNo, 7919) ^ Math.imul(m.frame.shots + 1, 104729)) >>> 0);
     await frameDelay(Math.max(0, 700 - (performance.now() - started)));
-    if (this.disposed || this.match !== m) return;
-    // let it be seen lining up: place the cue ball, turn the cue, pull it back
+    const gone = () => this.disposed || this.match !== m;
+    if (gone()) return;
+    // let it be seen lining up: place the cue ball, turn the cue, pull it back (stopping at once
+    // if the table is left, the frame conceded or the match replaced meanwhile)
     if (shot.place && this.place) {
       const from = { ...this.place };
       await animate(450, (k) => {
+        if (gone()) return;
         this.place = { x: from.x + (shot.place!.x - from.x) * k, y: from.y + (shot.place!.y - from.y) * k };
         this.syncView();
       });
@@ -342,26 +346,35 @@ export class TableScreen {
     const a0 = this.aimAngle;
     let da = Math.atan2(shot.dy, shot.dx) - a0;
     da = ((((da + Math.PI) % TAU) + TAU) % TAU) - Math.PI;
+    if (gone()) return;
     await animate(500 + Math.abs(da) * 250, (k) => {
+      if (gone()) return;
       this.setAimAngle(a0 + da * k);
       this.aim.side = shot.side * k;
       this.aim.height = shot.height * k;
       this.syncView();
     });
+    if (gone()) return;
     await animate(380, (k) => {
+      if (gone()) return;
       this.aim.power = shot.power * k;
       this.syncView();
     });
     await frameDelay(150);
-    if (this.disposed || this.match !== m) return;
+    if (gone()) return;
     this.enqueue(() => this.playShot(shot));
   }
 
   // ---------------------------------------------------------------- per frame
 
+  /** The pause menu or the controls list is over the table: the table takes no input. */
+  private get covered(): boolean {
+    return !this.$['pause'].classList.contains('hidden') || !this.$['controls-panel'].classList.contains('hidden');
+  }
+
   private onFrame(dt: number): void {
     if (this.disposed) return;
-    if (this.myTurn) {
+    if (this.myTurn && !this.covered) {
       const fine = (this.keys.has('Shift') ? 0.08 : 1) * (this.view.mode === 'sight' ? 0.35 : 1);
       const b = binds();
       let turn = 0;
@@ -630,6 +643,7 @@ export class TableScreen {
       }
       if (key === 'v') this.toggleCamera();
       if (key === 'h' || key === '?') this.toggleControls();
+      if (this.covered) return;
       if (!this.myTurn) {
         if (e.key === ' ' && this.view.isPlaying) this.view.hurry();
         return;
@@ -659,6 +673,7 @@ export class TableScreen {
       }
     };
     const blur = () => {
+      this.meter = null;
       this.keys.clear();
       this.view.zoomHold = false;
     };
@@ -732,7 +747,12 @@ export class TableScreen {
 
   /** A judged stroke: turn the cue by the error, set the power, and play it. */
   private strike(r: { power: number; aimError: number; verdict: string; clean: boolean }): void {
-    if (!this.myTurn) return;
+    if (!this.myTurn || this.waitingForServer) return;
+    if (this.match.frame.inHand && (!this.place || !canPlace(this.match, this.place.x, this.place.y))) {
+      this.aim.power = 0;
+      this.syncView();
+      return this.flash('Place the cue ball first');
+    }
     this.setAimAngle(this.aimAngle + r.aimError);
     this.aim.power = r.power;
     this.syncView();
@@ -765,6 +785,7 @@ export class TableScreen {
     const on = show ?? p.classList.contains('hidden');
     if (on) this.renderControls();
     p.classList.toggle('hidden', !on);
+    if (on) this.releaseInput();
   }
 
   private toggleCamera(): void {
@@ -778,7 +799,20 @@ export class TableScreen {
     const p = this.$['pause'];
     const on = show ?? p.classList.contains('hidden');
     p.classList.toggle('hidden', !on);
+    if (on) this.releaseInput();
     this.refreshTools();
+  }
+
+  /** Let go of everything in progress (a panel opened over the table). */
+  private releaseInput(): void {
+    this.keys.clear();
+    this.meter = null;
+    this.stroking = null;
+    this.view.zoomHold = false;
+    if (this.myTurn && this.aim.power > 0) {
+      this.aim.power = 0;
+      this.syncView();
+    }
   }
 
   private concede(): void {
@@ -910,6 +944,7 @@ export class TableScreen {
 
   dispose(): void {
     this.disposed = true;
+    this.view.cancel();
     this.view.zoomHold = false;
     for (const c of this.cleanup) c();
     this.view.onRender = null;

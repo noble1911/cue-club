@@ -151,6 +151,28 @@ describe('server', () => {
     for (const c of all) c.ws.close();
   });
 
+  it('a room whose only host left passes to whoever joins, who can start it', async () => {
+    const host = new Client();
+    await host.open();
+    host.send({ t: 'create', name: 'Gone', settings: { variant: 'nine', raceTo: 1, guide: 'full', cueing: 'casual' } });
+    const { code } = await host.wait('welcome');
+    host.send({ t: 'leave' });
+    await new Promise((r) => setTimeout(r, 50));
+    const a = new Client();
+    await a.open();
+    a.send({ t: 'join', code, name: 'A' });
+    await a.wait('welcome');
+    const b = new Client();
+    await b.open();
+    b.send({ t: 'join', code, name: 'B' });
+    await b.wait('welcome');
+    const r = await a.wait('room', (m) => m.room.members.length === 2);
+    expect(r.room.host).toBe(a.you);
+    a.send({ t: 'start' });
+    expect((await a.wait('room', (m) => m.room.phase === 'playing')).room.phase).toBe('playing');
+    for (const c of [host, a, b]) c.ws.close();
+  });
+
   it('a reload reclaims the seat with the token', async () => {
     const host = new Client();
     await host.open();

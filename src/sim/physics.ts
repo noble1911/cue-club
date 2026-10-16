@@ -186,7 +186,9 @@ function ballBall(t: TableSpec, a: Ball, b: Ball, time: number, events: SimEvent
   const tx = -ny;
   const ty = nx;
   const R = t.ballRadius;
-  const slip = (a.vx - b.vx) * tx + (a.vy - b.vy) * ty - R * (a.wz + b.wz);
+  // relative sliding of the two surfaces at the contact: a's surface there moves at +R·wz·t
+  // (contact on its +n side), b's at −R·wz·t (contact on its −n side)
+  const slip = (a.vx - b.vx) * tx + (a.vy - b.vy) * ty + R * (a.wz + b.wz);
   const jt = clamp(-slip / 7, -0.05 * p, 0.05 * p);
   a.vx += jt * tx;
   a.vy += jt * ty;

@@ -117,9 +117,17 @@ export const SNOOKER_RULES: Rules = {
       const nextPhase: Phase = reds(after).length > 0 ? 'red' : 'sequence';
       const base = { points, brk: 0, foul: true, turn: opp, inHand: s.cuePotted ? ('d' as const) : null, rule: { phase: nextPhase } };
       // a foul on the last black ends the frame (unless that levels the scores)
-      if (phase === 'sequence' && lowestColour(f.balls) === BLACK && points[0] !== points[1]) {
-        const winner: Player = points[0] > points[1] ? 0 : 1;
-        return next(f, after, { ...base, over: { winner, reason: `foul on the black` }, message: `Foul on the black (${foul}): ${penalty} to @${opp}` });
+      // only the black left: the first score or foul ends the frame, unless that levels the
+      // scores: then the black is re-spotted, lots are drawn, and the next player is in hand
+      if (phase === 'sequence' && lowestColour(f.balls) === BLACK) {
+        if (points[0] !== points[1]) {
+          const winner: Player = points[0] > points[1] ? 0 : 1;
+          return next(f, after, { ...base, over: { winner, reason: `foul on the black` }, message: `Foul on the black (${foul}): ${penalty} to @${opp}` });
+        }
+        respot(T, after, BLACK, [SPOTS[BLACK]]);
+        respot(T, after, 0, [{ x: T.baulkX - 0.02, y: 0.08 }]);
+        const toss: Player = rng.next() < 0.5 ? 0 : 1;
+        return next(f, after, { ...base, turn: toss, inHand: 'd', message: `Foul on the black levels the scores: re-spotted black, @${toss} plays` });
       }
       return next(f, after, { ...base, message: `Foul (${foul}): ${penalty} points to @${opp}` });
     }
