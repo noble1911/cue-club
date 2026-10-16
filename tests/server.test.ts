@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import WebSocket from 'ws';
 import type { Server } from 'node:http';
+import net from 'node:net';
 import { startServer } from '../server/index.ts';
 import { shotNumber, type ClientMsg, type ServerMsg } from '../src/net/protocol.ts';
 import { canPlace, type Match } from '../src/sim/game.ts';
@@ -71,6 +72,30 @@ function anyPlace(m: Match) {
 }
 
 describe('server', () => {
+  it('survives an oversized websocket frame and a malformed URL', async () => {
+    const base = url.replace('ws://', 'http://').replace('/ws', '');
+    const big = new WebSocket(url);
+    big.on('error', () => {});
+    await new Promise((r) => big.once('open', r));
+    big.send('x'.repeat(20_000));
+    await new Promise((r) => big.once('close', r));
+    const bad = await new Promise<number>((resolve) => {
+      const sock = net.connect(Number(new URL(base).port), '127.0.0.1', () => sock.write('GET /%E0%A4%A HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n'));
+      let data = '';
+      sock.on('data', (d) => (data += d));
+      sock.on('close', () => resolve(Number(data.split(' ')[1])));
+    });
+    expect(bad).toBe(400);
+    expect((await fetch(base + '/healthz')).status).toBe(200);
+    expect((await fetch(base + '/../package.json')).status).not.toBe(200);
+    // and still serves rooms
+    const c = new Client();
+    await c.open();
+    c.send({ t: 'create', name: 'After', settings: { variant: 'uk8', raceTo: 1, guide: 'full', cueing: 'casual' } });
+    expect((await c.wait('welcome')).code).toHaveLength(4);
+    c.ws.close();
+  });
+
   it('only the host changes the aim guide, and junk falls back to full', async () => {
     const { host, others, all } = await room(2);
     others[0].send({ t: 'settings', settings: { variant: 'nine', raceTo: 1, guide: 'off', cueing: 'club' } });

@@ -12,7 +12,7 @@
 
 import { createServer, type Server } from 'node:http';
 import { readFile, stat } from 'node:fs/promises';
-import { extname, join, normalize, resolve } from 'node:path';
+import { extname, join, normalize, resolve, sep } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer, type WebSocket } from 'ws';
@@ -344,35 +344,58 @@ function sweep(): void {
 
 // ------------------------------------------------------------------ http + ws
 
+async function serveFile(rawUrl: string, res: import('node:http').ServerResponse): Promise<void> {
+  let url: URL;
+  let p: string;
+  try {
+    url = new URL(rawUrl, 'http://x');
+    p = decodeURIComponent(url.pathname);
+  } catch {
+    res.writeHead(400, { 'Content-Type': 'text/plain' });
+    return void res.end('bad request');
+  }
+  if (url.pathname === '/healthz') {
+    res.writeHead(200, { 'Content-Type': 'text/plain' });
+    return void res.end(`ok ${rooms.size} rooms`);
+  }
+  if (p.endsWith('/')) p += 'index.html';
+  const file = join(ROOT, normalize(p));
+  // inside dist/ itself (a bare prefix check would also let in a sibling like dist-old/)
+  if (!file.startsWith(ROOT + sep)) {
+    res.writeHead(403);
+    return void res.end();
+  }
+  try {
+    if (!(await stat(file)).isFile()) throw new Error('not a file');
+  } catch {
+    res.writeHead(404, { 'Content-Type': 'text/plain' });
+    return void res.end('not found');
+  }
+  const ext = extname(file);
+  const body = await readFile(file);
+  res.writeHead(200, {
+    'Content-Type': TYPES[ext] ?? 'application/octet-stream',
+    'Cache-Control': ext === '.html' ? 'no-cache' : p.startsWith('/assets/') ? 'public, max-age=31536000, immutable' : 'public, max-age=3600',
+  });
+  res.end(body);
+}
+
 export function startServer(port: number): Promise<Server> {
-  const http = createServer(async (req, res) => {
-    const url = new URL(req.url ?? '/', 'http://x');
-    if (url.pathname === '/healthz') {
-      res.writeHead(200, { 'Content-Type': 'text/plain' });
-      return res.end(`ok ${rooms.size} rooms`);
-    }
-    let p = decodeURIComponent(url.pathname);
-    if (p.endsWith('/')) p += 'index.html';
-    const file = join(ROOT, normalize(p));
-    if (!file.startsWith(ROOT)) {
-      res.writeHead(403);
-      return res.end();
-    }
-    try {
-      if (!(await stat(file)).isFile()) throw new Error('not a file');
-      const ext = extname(file);
-      res.writeHead(200, {
-        'Content-Type': TYPES[ext] ?? 'application/octet-stream',
-        'Cache-Control': ext === '.html' ? 'no-cache' : p.startsWith('/assets/') ? 'public, max-age=31536000, immutable' : 'public, max-age=3600',
-      });
-      res.end(await readFile(file));
-    } catch {
-      res.writeHead(404, { 'Content-Type': 'text/plain' });
-      res.end('not found');
-    }
+  const http = createServer((req, res) => {
+    // Anything thrown while handling a request answers that request, never takes the server down
+    // (a bad URL used to: decodeURIComponent threw outside any catch).
+    serveFile(req.url ?? '/', res).catch((e) => {
+      console.error('request failed', req.url, e);
+      if (!res.headersSent) res.writeHead(500);
+      res.end();
+    });
   });
   const wss = new WebSocketServer({ server: http, path: '/ws', maxPayload: 16 * 1024 });
+  // A socket error (an oversized or malformed frame, a reset) with no listener is thrown, and a
+  // throw there exits the process: every room gone. Listen, log, and let the socket close.
+  wss.on('error', (e) => console.error('websocket server error', e));
   wss.on('connection', (ws) => {
+    ws.on('error', (e) => console.warn('socket error', e.message));
     const c: Conn = { room: null, member: null };
     let alive = true;
     ws.on('pong', () => (alive = true));
@@ -408,6 +431,9 @@ export function startServer(port: number): Promise<Server> {
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
+  // last resort: log and carry on rather than drop every room over one bad input
+  process.on('uncaughtException', (e) => console.error('uncaught', e));
+  process.on('unhandledRejection', (e) => console.error('unhandled rejection', e));
   const port = Number(process.env.PORT ?? 3000);
   startServer(port).then(() => console.log(`cue-club on :${port}`));
 }
