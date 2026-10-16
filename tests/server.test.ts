@@ -173,6 +173,65 @@ describe('server', () => {
     for (const c of [host, a, b]) c.ws.close();
   });
 
+  it('a stale or repeated shot gets the true match back (the client stops waiting)', async () => {
+    const { host, others } = await room(2);
+    host.send({ t: 'start' });
+    const start = await host.wait('match');
+    const shooter = start.seats[start.match.frame.turn] === host.you ? host : others[0];
+    shooter.inbox.length = 0;
+    shooter.send({ t: 'shot', mid: start.mid, n: 999_999, shot: { dx: 1, dy: 0, power: 0.5, side: 0, height: 0 } });
+    const back = await shooter.wait('match', (m) => m.mid === start.mid);
+    expect(back.match.frame.shots).toBe(0);
+    for (const c of [host, ...others]) c.ws.close();
+  });
+
+  it('a seat opened in a second tab takes over; the first is told (close code 4000)', async () => {
+    const one = new Client();
+    await one.open();
+    one.send({ t: 'create', name: 'Tab', settings: { variant: 'uk8', raceTo: 1, guide: 'full', cueing: 'casual' } });
+    const w = await one.wait('welcome');
+    const closed = new Promise<number>((r) => one.ws.once('close', (code) => r(code)));
+    const two = new Client();
+    await two.open();
+    two.send({ t: 'join', code: w.code, name: 'Tab', token: w.token });
+    expect((await two.wait('welcome')).you).toBe(w.you);
+    expect(await closed).toBe(4000);
+    two.ws.close();
+  });
+
+  it('floods are dropped, not crashing, and aim relays are throttled', async () => {
+    const { host, others } = await room(2);
+    host.send({ t: 'start' });
+    const start = await host.wait('match');
+    const shooter = start.seats[start.match.frame.turn] === host.you ? host : others[0];
+    const watcher = shooter === host ? others[0] : host;
+    watcher.inbox.length = 0;
+    for (let i = 0; i < 40; i++) shooter.send({ t: 'aim', mid: start.mid, aim: { dx: 1, dy: 0, power: i / 40, side: 0, height: 0 } });
+    await new Promise((r) => setTimeout(r, 200));
+    const relayed = watcher.inbox.filter((m) => m.t === 'aim').length;
+    expect(relayed).toBeGreaterThan(0);
+    expect(relayed).toBeLessThan(10);
+    for (let i = 0; i < 500; i++) shooter.send({ t: 'ping' });
+    await new Promise((r) => setTimeout(r, 200));
+    const base = url.replace('ws://', 'http://').replace('/ws', '');
+    expect((await fetch(base + '/healthz')).status).toBe(200);
+    for (const c of [host, ...others]) c.ws.close();
+  });
+
+  it('caps sockets per client address (as forwarded by the gateway)', async () => {
+    const socks: WebSocket[] = [];
+    let refused = 0;
+    for (let i = 0; i < 45; i++) {
+      const s = new WebSocket(url, { headers: { 'x-forwarded-for': '203.0.113.9' } });
+      s.on('close', (code) => code === 1013 && refused++);
+      s.on('error', () => {});
+      socks.push(s);
+    }
+    await new Promise((r) => setTimeout(r, 400));
+    expect(refused).toBe(5);
+    for (const s of socks) s.close();
+  });
+
   it('a reload reclaims the seat with the token', async () => {
     const host = new Client();
     await host.open();

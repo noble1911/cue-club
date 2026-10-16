@@ -166,6 +166,15 @@ export class TableScreen {
     this.enqueue(() => this.playShot(shot, after));
   }
 
+  /** Online: the server refused our shot. Be ready to shoot again. */
+  serverRefused(): void {
+    if (!this.waitingForServer) return;
+    this.waitingForServer = false;
+    this.aim.power = 0;
+    this.syncView();
+    this.refreshHint();
+  }
+
   /** Online: the other player is lining up. */
   remoteAiming(aim: Aim): void {
     this.remoteAim = aim;
@@ -284,8 +293,16 @@ export class TableScreen {
     sound.unlock();
     if (this.o.online) {
       this.waitingForServer = true;
-      this.o.online.shot(shot, shotNumber(this.match));
+      const m = this.match;
+      this.o.online.shot(shot, shotNumber(m));
       this.refreshHint();
+      // safety net: no answer at all (a lost message) shouldn't freeze the table
+      setTimeout(() => {
+        if (!this.disposed && this.waitingForServer && this.match === m) {
+          this.serverRefused();
+          this.flash('No answer from the server: try the shot again');
+        }
+      }, 10_000);
       return;
     }
     this.enqueue(() => this.playShot(shot));
@@ -329,7 +346,14 @@ export class TableScreen {
     const level = this.o.aiLevel ?? 'medium';
     this.refreshHint();
     const started = performance.now();
-    const shot = await think(m, level, (m.setup.seed ^ Math.imul(m.frameNo, 7919) ^ Math.imul(m.frame.shots + 1, 104729)) >>> 0);
+    let shot: Shot;
+    try {
+      shot = await think(m, level, (m.setup.seed ^ Math.imul(m.frameNo, 7919) ^ Math.imul(m.frame.shots + 1, 104729)) >>> 0);
+    } catch (e) {
+      // the worker failed or timed out: a plain shot at the nearest ball on rather than a hang
+      console.error('computer player failed', e);
+      shot = this.fallbackShot();
+    }
     await frameDelay(Math.max(0, 700 - (performance.now() - started)));
     const gone = () => this.disposed || this.match !== m;
     if (gone()) return;
@@ -363,6 +387,16 @@ export class TableScreen {
     await frameDelay(150);
     if (gone()) return;
     this.enqueue(() => this.playShot(shot));
+  }
+
+  /** A plain, legal shot for when the computer player can't think: at the nearest ball on. */
+  private fallbackShot(): Shot {
+    const f = this.match.frame;
+    const place = f.inHand ? (this.place && canPlace(this.match, this.place.x, this.place.y) ? this.place : this.defaultPlace()) : undefined;
+    const from = place ?? f.balls[0];
+    const on = this.rules.ballsOn(f).map((id) => f.balls[id]).filter((b) => b?.on);
+    const target = on.sort((a, b) => (a.x - from.x) ** 2 + (a.y - from.y) ** 2 - ((b.x - from.x) ** 2 + (b.y - from.y) ** 2))[0] ?? { x: from.x + 1, y: from.y };
+    return cleanShot({ dx: target.x - from.x, dy: target.y - from.y, power: 0.35, side: 0, height: 0, ...(place ? { place } : {}) });
   }
 
   // ---------------------------------------------------------------- per frame
@@ -484,9 +518,10 @@ export class TableScreen {
 
   private bindInput(): void {
     const canvas = this.view.renderer.domElement;
-    let drag: null | { kind: 'aim' | 'place' | 'stroke'; x: number; y: number; angle: number; pitch: number } = null;
+    let drag: null | { kind: 'aim' | 'place' | 'stroke'; x: number; y: number; angle: number; pitch: number; id: number } = null;
     const onDown = (e: PointerEvent) => {
       sound.unlock();
+      if (drag) return; // a second finger doesn't take over the first one's drag
       if (this.view.isPlaying) return this.view.hurry();
       if (!this.myTurn || this.waitingForServer) return;
       const mouse = e.pointerType === 'mouse';
@@ -496,7 +531,7 @@ export class TableScreen {
         const p = this.view.project(this.place.x, this.place.y);
         const near = Math.hypot(p.x - e.clientX, p.y - e.clientY) < 34;
         if (near) {
-          drag = { kind: 'place', x: e.clientX, y: e.clientY, angle: 0, pitch: 0 };
+          drag = { kind: 'place', x: e.clientX, y: e.clientY, angle: 0, pitch: 0, id: e.pointerId };
           return;
         }
       }
@@ -504,17 +539,17 @@ export class TableScreen {
       // a finger aims on the table and strikes on the power bar
       if (mouse && e.button === 0) {
         if (this.match.frame.inHand && this.place && !canPlace(this.match, this.place.x, this.place.y)) return this.flash('Place the cue ball first');
-        drag = { kind: 'stroke', x: e.clientX, y: e.clientY, angle: 0, pitch: 0 };
+        drag = { kind: 'stroke', x: e.clientX, y: e.clientY, angle: 0, pitch: 0, id: e.pointerId };
         // a full pull back is ~a third of the screen height; ignore twitches under 12 px
         const px = Math.max(220, window.innerHeight * 0.32);
         this.strokeBegin(e.clientX, e.clientY, px, 12 / px);
         return;
       }
-      drag = { kind: 'aim', x: e.clientX, y: e.clientY, angle: this.aimAngle, pitch: this.view.pitch };
+      drag = { kind: 'aim', x: e.clientX, y: e.clientY, angle: this.aimAngle, pitch: this.view.pitch, id: e.pointerId };
       if (this.view.mode === 'top') this.aimAtPointer(e);
     };
     const onMove = (e: PointerEvent) => {
-      if (!drag || !this.myTurn) return;
+      if (!drag || !this.myTurn || e.pointerId !== drag.id) return;
       if (drag.kind === 'stroke') return this.strokeMove(e.clientX, e.clientY);
       if (drag.kind === 'place') {
         const p = this.view.pick(e.clientX, e.clientY);
@@ -537,7 +572,8 @@ export class TableScreen {
       if (this.view.mode === 'aim') this.view.pitch = clamp(this.view.pitch + dy * 0.004, 0, 1);
       this.syncView();
     };
-    const onUp = () => {
+    const onUp = (e: PointerEvent) => {
+      if (drag && e.pointerId !== drag.id) return;
       if (drag?.kind === 'stroke') {
         drag = null;
         return this.strokeEnd();
@@ -619,7 +655,7 @@ export class TableScreen {
       setSpin(e);
     });
     spin.addEventListener('pointermove', (e) => spinning && this.myTurn && setSpin(e));
-    spin.addEventListener('pointerup', () => (spinning = false));
+    for (const t of ['pointerup', 'pointercancel', 'lostpointercapture']) spin.addEventListener(t, () => (spinning = false));
     spin.addEventListener('dblclick', () => {
       if (!this.myTurn) return;
       this.aim.side = 0;
@@ -881,8 +917,8 @@ export class TableScreen {
     if (this.busy) h = 'Tap to speed up';
     else if (this.waitingForServer) h = 'Sending…';
     else if (f.over) h = '';
-    else if (seat === 'ai') h = `${esc(this.names[this.turn])} is thinking…`;
-    else if (seat === 'remote') h = `${esc(this.names[this.turn])} is lining up…`;
+    else if (seat === 'ai') h = `${this.names[this.turn]} is thinking…`;
+    else if (seat === 'remote') h = `${this.names[this.turn]} is lining up…`;
     else {
       const mouse = matchMedia('(pointer: fine)').matches;
       const drag = mouse ? 'Right-drag' : 'Drag';

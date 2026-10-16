@@ -51,9 +51,11 @@ export function judgeStroke(mode: Exclude<Cueing, 'casual'>, forward: StrokeSamp
   if (mode === 'club') power = first.pull;
   else {
     // the speed through the last half of the push, as a fraction of a full-length stroke in 130 ms
-    const mid = forward.find((s) => s.pull <= first.pull - travel / 2) ?? first;
+    // (coarse samples can put the half-way point on the last one: then use the whole push)
+    let mid = forward.find((s) => s.pull <= first.pull - travel / 2) ?? first;
+    if (last.t - mid.t < 8) mid = first;
     const v = ((mid.pull - last.pull) * trackPx) / Math.max(1, last.t - mid.t);
-    power = v / (trackPx / 130);
+    power = trackPx > 0 ? v / (trackPx / 130) : 0;
   }
 
   // deceleration: the last third of the push much slower than the first two thirds

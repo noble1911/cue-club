@@ -63,6 +63,11 @@ the gateway).
   `GH_TOKEN="$(gh auth token --user noble1911)" gh …` per command. `git push` already goes as
   noble1911 (repo-local credential helper asking `gh auth token --user noble1911`).
 - Online rooms live in memory, so a deploy ends games in progress.
+- The server is internet-facing: every socket has an error listener and every request is caught
+  (one bad frame or URL used to exit the process). Limits (env-overridable): `MAX_ROOMS` 300,
+  `MAX_SOCKETS_PER_IP` 40 (address from `cf-connecting-ip` / `x-forwarded-for`), a 60-message
+  burst / 30 a second per socket, aim relays at most every 40 ms. Out-of-step shots get the match
+  sent back; a seat opened in another tab closes the old socket with code 4000.
 
 **Deploy** a committed version (uncommitted changes are never deployed):
 

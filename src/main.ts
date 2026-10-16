@@ -240,6 +240,11 @@ interface OnlineState {
 let online: OnlineState | null = null;
 
 function goOnline(err: HTMLElement, how: { create?: boolean; code?: string; resume?: boolean }): void {
+  // a second click (or a second room) replaces the first connection, not runs alongside it
+  if (online && !how.resume) {
+    online.close();
+    online = null;
+  }
   const name = prefs.name || 'Player';
   err.textContent = '';
   const state: OnlineState = {
@@ -255,12 +260,16 @@ function goOnline(err: HTMLElement, how: { create?: boolean; code?: string; resu
     },
   };
   online = state;
-  let status: 'connecting' | 'open' | 'lost' = 'connecting';
   state.conn = new Connection(
     (m) => onServer(state, m, err),
-    (s) => {
-      status = s;
-      document.body.classList.toggle('offline', s === 'lost');
+    (st) => {
+      document.body.classList.toggle('offline', st === 'lost');
+      if (st === 'replaced' && online === state) {
+        online = null;
+        history.replaceState(null, '', location.pathname);
+        home();
+        toast('This seat was opened in another tab: playing on there');
+      }
     },
   );
   if (how.resume) {
@@ -274,7 +283,6 @@ function goOnline(err: HTMLElement, how: { create?: boolean; code?: string; resu
   if (how.create) state.conn.send({ t: 'create', name, settings: { variant: prefs.variant, raceTo: prefs.raceTo, guide, cueing: prefs.cueing } });
   else state.conn.send({ t: 'join', code: how.code!, name });
   (state as any).name = name;
-  void status;
 }
 
 function onServer(s: OnlineState, m: ServerMsg, err: HTMLElement): void {
@@ -290,13 +298,28 @@ function onServer(s: OnlineState, m: ServerMsg, err: HTMLElement): void {
         err.textContent = m.msg;
         s.conn.close();
         online = null;
-      } else toast(m.msg);
+      } else {
+        toast(m.msg);
+        // a refused shot: stop waiting for an answer that isn't coming
+        screen?.serverRefused();
+      }
       return;
-    case 'room':
+    case 'room': {
+      const before = s.room?.phase;
       s.room = m.room;
+      if (m.room.phase === 'lobby' && before && before !== 'lobby') {
+        // "New tournament with this room": everyone back to the lobby, old matches forgotten
+        s.matches.clear();
+        s.seen.clear();
+        s.showing = null;
+        screen?.dispose();
+        screen = null;
+        return lobby(s);
+      }
       if (!screen) lobby(s);
       else refreshRoomBadge(s);
       return;
+    }
     case 'match': {
       const known = s.matches.get(m.mid);
       s.matches.set(m.mid, { seats: m.seats, match: m.match });

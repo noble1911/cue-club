@@ -107,7 +107,8 @@ export const US8: Rules = {
       rule.groups = me === 0 ? [g, other] : [other, g];
     }
     const group = rule.groups ? rule.groups[me] : null;
-    const scored = isBreak ? own.length > 0 : group ? own.some((id) => groupOf(id) === group) : false;
+    // on the break any pot keeps the table (the 8 too: it's spotted and the breaker carries on)
+    const scored = isBreak ? potted.length > 0 : group ? own.some((id) => groupOf(id) === group) : false;
     if (scored) {
       const fresh = !(f.rule as UsRule).groups && rule.groups;
       return next(f, after, { rule, message: fresh ? `@${me} takes ${group}` : `@${me} keeps the table` });

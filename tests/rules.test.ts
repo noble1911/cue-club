@@ -197,3 +197,22 @@ describe('review fixes', () => {
     }
   });
 });
+
+describe('review fixes (batch 3)', () => {
+  it('a forfeit after a frame is already over does not count that frame twice', () => {
+    let m = newMatch({ variant: 'nine', raceTo: 3, names: ['A', 'B'], seed: 1 });
+    m = concede(m, 0);
+    m = concede(m, 0, true);
+    expect(m.wins).toEqual([0, 1]);
+    expect(m.winner).toBe(1);
+  });
+  it('rejects absurd shot directions', () => {
+    const m = newMatch({ variant: 'nine', raceTo: 1, names: ['A', 'B'], seed: 1 });
+    expect(checkShot(m, { dx: 1e160, dy: 1e160, power: 0.5, side: 0, height: 0, place: { x: -0.8, y: 0 } })).toMatch(/direction/);
+  });
+  it('US 8-ball: the 8 alone on the break is spotted and the breaker carries on', () => {
+    const n = judge(US8, frame(US8, { shots: 0 }), { firstHit: 1, potted: [8] });
+    expect(n.turn).toBe(0);
+    expect(n.balls[8].on).toBe(true);
+  });
+});

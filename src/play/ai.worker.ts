@@ -5,4 +5,5 @@ self.onmessage = (e: MessageEvent<{ id: number; match: Match; level: AiLevel; se
   const { id, match, level, seed } = e.data;
   const shot = chooseShot(match, level, seed);
   (self as unknown as Worker).postMessage({ id, shot });
+  // (a throw here reaches the page as the worker's error event, failing this think())
 };

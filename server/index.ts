@@ -28,6 +28,13 @@ const GRACE_MS = Number(process.env.GRACE_MS ?? 60_000);
 /** Pause after a frame ends before the next one is racked (the browsers show the result). */
 const FRAME_PAUSE_MS = Number(process.env.FRAME_PAUSE_MS ?? 6_000);
 const ROOM_TTL_MS = 20 * 60_000;
+/** Public-server limits: rooms in all, sockets per client address, messages per socket. */
+const MAX_ROOMS = Number(process.env.MAX_ROOMS ?? 300);
+const MAX_SOCKETS_PER_IP = Number(process.env.MAX_SOCKETS_PER_IP ?? 40);
+const MSG_BURST = 60;
+const MSG_PER_SEC = 30;
+/** Aim updates relayed at most this often per player (the client sends ~14 a second). */
+const AIM_MIN_MS = 40;
 
 const TYPES: Record<string, string> = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json',
@@ -40,6 +47,7 @@ interface Member {
   token: string;
   ws: WebSocket | null;
   goneAt: number;
+  lastAim: number;
   /** Left for good (or timed out): forfeits whatever they're in. */
   dropped: boolean;
 }
@@ -195,8 +203,10 @@ function handle(ws: WebSocket, c: Conn, msg: ClientMsg): void {
     case 'ping':
       return send(ws, { t: 'pong' });
     case 'create': {
-      leave(c);
-      const member: Member = { id: id(), name: cleanName(msg.name), token: id() + id(), ws, goneAt: 0, dropped: false };
+      if (rooms.size >= MAX_ROOMS) return err('The club is full right now: try again in a few minutes');
+      // a new room means leaving any other one for good (no ghost seat left holding it open)
+      leave(c, true);
+      const member: Member = { id: id(), name: cleanName(msg.name), token: id() + id(), ws, goneAt: 0, dropped: false, lastAim: 0 };
       const room: Room = { code: newCode(), host: member.id, settings: cleanSettings(msg.settings), members: [member], phase: 'lobby', bracket: null, live: new Map(), emptySince: 0 };
       rooms.set(room.code, room);
       c.room = room;
@@ -210,8 +220,9 @@ function handle(ws: WebSocket, c: Conn, msg: ClientMsg): void {
       // coming back to a seat (reload, lost connection)
       const back = msg.token ? room.members.find((m) => m.token === msg.token && !m.dropped) : undefined;
       if (back) {
-        if (back.ws && back.ws !== ws) back.ws.close();
-        leave(c);
+        // the seat moves to this socket; the old one is told why, so it doesn't fight back
+        if (back.ws && back.ws !== ws) back.ws.close(4000, 'replaced');
+        if (c.member !== back) leave(c, true);
         back.ws = ws;
         back.goneAt = 0;
         c.room = room;
@@ -224,8 +235,8 @@ function handle(ws: WebSocket, c: Conn, msg: ClientMsg): void {
       }
       if (room.phase !== 'lobby') return err('That room has already started');
       if (room.members.filter((m) => !m.dropped).length >= MAX_PLAYERS) return err('That room is full');
-      leave(c);
-      const member: Member = { id: id(), name: cleanName(msg.name), token: id() + id(), ws, goneAt: 0, dropped: false };
+      leave(c, true);
+      const member: Member = { id: id(), name: cleanName(msg.name), token: id() + id(), ws, goneAt: 0, dropped: false, lastAim: 0 };
       room.members.push(member);
       c.room = room;
       c.member = member;
@@ -263,6 +274,9 @@ function handle(ws: WebSocket, c: Conn, msg: ClientMsg): void {
       const { room, member } = c;
       const lm = room?.live.get(msg.mid);
       if (!room || !member || !lm || lm.seats[lm.match.frame.turn] !== member.id) return;
+      const now = Date.now();
+      if (now - member.lastAim < AIM_MIN_MS) return;
+      member.lastAim = now;
       const a = msg.aim;
       if (!a || ![a.dx, a.dy, a.power, a.side, a.height].every(Number.isFinite)) return;
       const aim = { dx: a.dx, dy: a.dy, power: a.power, side: a.side, height: a.height, ...(a.place && Number.isFinite(a.place.x) && Number.isFinite(a.place.y) ? { place: { x: a.place.x, y: a.place.y } } : {}) };
@@ -274,9 +288,13 @@ function handle(ws: WebSocket, c: Conn, msg: ClientMsg): void {
       const { room, member } = c;
       const lm = room?.live.get(msg.mid);
       if (!room || !member || !lm) return err('No such match');
-      if (lm.match.winner !== null || lm.match.frame.over) return;
-      if (lm.seats[lm.match.frame.turn] !== member.id) return err('Not your turn');
-      if (msg.n !== shotNumber(lm.match)) return; // a repeat of a shot already played
+      // out of step (a repeat, a frame that just ended, someone else's turn): send the truth back
+      // so the client stops waiting on an answer that will never come
+      if (lm.match.winner !== null || lm.match.frame.over || msg.n !== shotNumber(lm.match)) return sendMatch(room, lm, ws);
+      if (lm.seats[lm.match.frame.turn] !== member.id) {
+        sendMatch(room, lm, ws);
+        return err('Not your turn');
+      }
       const raw = msg.shot;
       if (!raw || typeof raw !== 'object') return err('Bad shot');
       const problem = checkShot(lm.match, raw);
@@ -402,8 +420,24 @@ export function startServer(port: number): Promise<Server> {
   // A socket error (an oversized or malformed frame, a reset) with no listener is thrown, and a
   // throw there exits the process: every room gone. Listen, log, and let the socket close.
   wss.on('error', (e) => console.error('websocket server error', e));
-  wss.on('connection', (ws) => {
+  const perIp = new Map<string, number>();
+  wss.on('connection', (ws, req) => {
     ws.on('error', (e) => console.warn('socket error', e.message));
+    // behind Cloudflare and the gateway every socket comes from the gateway: use the client's
+    // address as forwarded
+    const ip = String(req.headers['cf-connecting-ip'] ?? String(req.headers['x-forwarded-for'] ?? '').split(',')[0] ?? '').trim() || req.socket.remoteAddress || '?';
+    const count = (perIp.get(ip) ?? 0) + 1;
+    perIp.set(ip, count);
+    ws.on('close', () => {
+      const n = (perIp.get(ip) ?? 1) - 1;
+      if (n <= 0) perIp.delete(ip);
+      else perIp.set(ip, n);
+    });
+    if (count > MAX_SOCKETS_PER_IP) return ws.close(1013, 'too many connections');
+    // a message budget per socket: bursts are fine, floods are dropped (and a flooder cut off)
+    let tokens = MSG_BURST;
+    let refilled = Date.now();
+    let dropped = 0;
     const c: Conn = { room: null, member: null };
     let alive = true;
     ws.on('pong', () => (alive = true));
@@ -413,6 +447,14 @@ export function startServer(port: number): Promise<Server> {
       ws.ping();
     }, 20_000);
     ws.on('message', (data) => {
+      const now = Date.now();
+      tokens = Math.min(MSG_BURST, tokens + ((now - refilled) / 1000) * MSG_PER_SEC);
+      refilled = now;
+      if (tokens < 1) {
+        if (++dropped > 300) ws.close(1008, 'too many messages');
+        return;
+      }
+      tokens -= 1;
       let msg: ClientMsg;
       try {
         msg = JSON.parse(String(data));

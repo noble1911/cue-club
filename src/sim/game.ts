@@ -74,7 +74,7 @@ export function canPlace(m: Match, x: number, y: number): boolean {
 export function checkShot(m: Match, shot: Shot): string | null {
   if (m.winner !== null || m.frame.over) return 'the frame is over';
   for (const k of ['dx', 'dy', 'power', 'side', 'height'] as const) if (typeof shot[k] !== 'number' || !Number.isFinite(shot[k])) return `bad ${k}`;
-  if (shot.dx * shot.dx + shot.dy * shot.dy < 0.25) return 'no direction';
+  if (Math.abs(shot.dx) > 10 || Math.abs(shot.dy) > 10 || shot.dx * shot.dx + shot.dy * shot.dy < 0.25) return 'no direction';
   if (shot.power < 0 || shot.power > 1 || Math.abs(shot.side) > 1 || Math.abs(shot.height) > 1) return 'out of range';
   if (m.frame.inHand) {
     if (!shot.place) return 'place the cue ball first';
@@ -120,6 +120,8 @@ function settleFrame(m: Match): void {
 export function concede(m: Match, p: Player, whole = false): Match {
   if (m.winner !== null) return m;
   const w = otherPlayer(p);
+  // the frame is already decided (waiting for the next to be racked): don't count it twice
+  if (m.frame.over) return whole ? { ...m, winner: w } : m;
   const out: Match = { ...m, frame: { ...m.frame, over: { winner: w, reason: `@${p} conceded` }, message: `@${p} concedes` } };
   settleFrame(out);
   if (whole) out.winner = w;

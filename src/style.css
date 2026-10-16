@@ -80,7 +80,7 @@ input:focus, select:focus { outline: 2px solid var(--brass-dim); outline-offset:
 .seat i { color: var(--muted); }
 .bm .watch { width: 100%; border: none; border-top: 1px solid var(--line); border-radius: 0; padding: 6px; font-size: 13px; background: rgba(216, 178, 106, 0.15); }
 .champ { font-family: var(--serif); font-size: 24px; text-align: center; color: var(--brass); padding: 10px; border: 1px solid var(--brass-dim); border-radius: 12px; background: rgba(216, 178, 106, 0.08); }
-.room-badge { position: absolute; left: 16px; bottom: 16px; font-size: 13px; padding: 7px 11px; background: var(--panel); }
+.room-badge { position: absolute; left: 50%; top: 96px; transform: translateX(-50%); font-size: 13px; padding: 6px 11px; background: var(--panel); }
 .toast { position: absolute; left: 50%; top: 84px; transform: translateX(-50%); background: var(--panel); border: 1px solid var(--brass-dim); padding: 10px 16px; border-radius: 10px; }
 body.offline::after { content: 'Reconnecting…'; position: fixed; top: 10px; left: 50%; transform: translateX(-50%); background: #5a1d17; padding: 6px 12px; border-radius: 8px; font-size: 13px; }
 
@@ -158,7 +158,7 @@ body.offline::after { content: 'Reconnecting…'; position: fixed; top: 10px; le
   .power-track { width: 26px; height: 38vh; }
   .tools { right: 8px; left: 8px; bottom: 8px; justify-content: flex-end; }
   .hint { display: none; }
-  .room-badge { left: 8px; bottom: 8px; }
+  .room-badge { top: auto; bottom: 56px; }
 }
 
 /* controls list (in game and on the menu) */

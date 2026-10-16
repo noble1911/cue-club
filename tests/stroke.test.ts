@@ -59,3 +59,16 @@ describe('keyboard meter', () => {
     expect(judgeMeter('pro', 0, 0.73).power).toBeCloseTo(0.73);
   });
 });
+
+describe('pro cueing, coarse samples', () => {
+  it('a fast stroke reported in few samples still plays hard', () => {
+    const coarse = [
+      { t: 0, x: 0, pull: 1 },
+      { t: 30, x: 0, pull: 0.8 },
+      { t: 60, x: 0, pull: 0.6 },
+      { t: 90, x: 0, pull: 0 },
+    ];
+    expect(judgeStroke('pro', coarse, 270).power).toBeGreaterThan(0.5);
+    expect(Number.isFinite(judgeStroke('pro', coarse, 0).power)).toBe(true);
+  });
+});
