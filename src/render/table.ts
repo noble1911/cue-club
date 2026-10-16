@@ -159,19 +159,6 @@ function cushionGeometry(foot: THREE.Vector2[], nx: number, ny: number, h: numbe
   return geo;
 }
 
-/** Where a ray from p along unit d first meets the circle (or null). */
-function rayCircle(p: THREE.Vector2, d: THREE.Vector2, c: Circle): THREE.Vector2 | null {
-  const fx = p.x - c.x;
-  const fy = p.y - c.y;
-  const b = fx * d.x + fy * d.y;
-  const cc = fx * fx + fy * fy - c.r * c.r;
-  const disc = b * b - cc;
-  if (disc < 0) return null;
-  const t = -b - Math.sqrt(disc);
-  if (t < 0) return null;
-  return new THREE.Vector2(p.x + d.x * t, p.y + d.y * t);
-}
-
 export interface TableModel {
   group: THREE.Group;
   /** Height of the cloth surface (balls sit at ballRadius above it). */
@@ -199,7 +186,8 @@ export function buildTable(t: TableSpec): TableModel {
   // ---------------------------------------------------------------- cloth
   const clothTex = keep(clothTexture(t, cw));
   const clothMat = keep(new THREE.MeshStandardMaterial({ map: clothTex, roughness: 0.92, metalness: 0 }));
-  const bites: Circle[] = t.pockets.map((p) => ({ x: p.x, y: p.y, r: p.kind === 'corner' ? t.cornerMouth * 0.62 : t.middleMouth * 0.56 }));
+  // the cloth stops exactly where a ball drops (the physics pocket circles)
+  const bites: Circle[] = t.pockets.map((p) => ({ x: p.x, y: p.y, r: p.r }));
   const bed = new THREE.Shape(outline(A, B, bites, 'subtract'));
   const bedGeo = keep(new THREE.ShapeGeometry(bed, 1));
   // UVs over the whole cloth rectangle
@@ -224,23 +212,26 @@ export function buildTable(t: TableSpec): TableModel {
   slate.receiveShadow = true;
   group.add(slate);
 
-  // the openings cut in the rail around each pocket (cushions end where they begin)
-  const holes: Circle[] = t.pockets.map((p) => ({ x: p.x, y: p.y, r: p.kind === 'corner' ? t.cornerMouth * 0.82 : t.middleMouth * 0.68 }));
-
   // ---------------------------------------------------------------- cushions (from the physics segments)
-  const cushionMat = keep(new THREE.MeshStandardMaterial({ color: new THREE.Color(t.cloth).multiplyScalar(0.8), roughness: 0.9 }));
-  const noseH = 1.3 * R;
+  // Each run is the main cushion plus its two jaws. The cushion's ends follow the jaw lines out to
+  // the back of the cushion (the rail's inner edge): exactly what the balls bounce off.
+  interface Run {
+    a: THREE.Vector2;
+    b: THREE.Vector2;
+    ka: THREE.Vector2;
+    kb: THREE.Vector2;
+    nx: number;
+    ny: number;
+  }
+  const runs: Run[] = [];
   for (let i = 0; i < t.cushions.length; i += 3) {
     const main = t.cushions[i];
-    const jA = t.cushions[i + 1];
-    const jB = t.cushions[i + 2];
     const midX = (main.ax + main.bx) / 2;
     const midY = (main.ay + main.by) / 2;
     const horizontal = Math.abs(main.ay - main.by) < 1e-9;
     const nx = horizontal ? 0 : Math.sign(midX);
     const ny = horizontal ? Math.sign(midY) : 0;
-    // where each jaw line meets the back of the cushion (the rail's inner edge)
-    const back = (j: typeof jA) => {
+    const back = (j: (typeof t.cushions)[number]) => {
       const dx = j.bx - j.ax;
       const dy = j.by - j.ay;
       const len = Math.hypot(dx, dy);
@@ -248,45 +239,44 @@ export function buildTable(t: TableSpec): TableModel {
       const k = cw / Math.max(0.2, along);
       return new THREE.Vector2(j.ax + (dx / len) * k, j.ay + (dy / len) * k);
     };
-    const a = new THREE.Vector2(main.ax, main.ay);
-    const b = new THREE.Vector2(main.bx, main.by);
-    const mid = new THREE.Vector2((a.x + b.x) / 2, (a.y + b.y) / 2);
-    // One end of the cushion: down its jaw until the pocket opening, then round the opening's
-    // edge to the back of the cushion. (The physics jaw carries on inside the opening, hidden
-    // under the pocket's lip, as a real jaw does under the leather.)
-    const end = (tip: THREE.Vector2, j: typeof jA): THREE.Vector2[] => {
-      const hole = holes.reduce((best, h) => (Math.hypot(h.x - tip.x, h.y - tip.y) < Math.hypot(best.x - tip.x, best.y - tip.y) ? h : best));
-      const jd = new THREE.Vector2(j.bx - j.ax, j.by - j.ay).normalize();
-      const inside = Math.hypot(tip.x - hole.x, tip.y - hole.y) <= hole.r;
-      const J = inside ? tip.clone() : rayCircle(tip, jd, hole);
-      // the back line: through a + n·cw, along the run
-      const bl = new THREE.Vector2(a.x + nx * cw, a.y + ny * cw);
-      const run = new THREE.Vector2(b.x - a.x, b.y - a.y).normalize();
-      const fx = bl.x - hole.x;
-      const fy = bl.y - hole.y;
-      const bb = fx * run.x + fy * run.y;
-      const disc = bb * bb - (fx * fx + fy * fy - hole.r * hole.r);
-      if (!J || disc < 0) return [back(j)];
-      const roots = [-bb - Math.sqrt(disc), -bb + Math.sqrt(disc)].map((t) => new THREE.Vector2(bl.x + run.x * t, bl.y + run.y * t));
-      const K = roots.sort((p, q) => p.distanceTo(mid) - q.distanceTo(mid))[0];
-      // arc J → K the short way round
-      let a0 = Math.atan2(J.y - hole.y, J.x - hole.x);
-      let a1 = Math.atan2(K.y - hole.y, K.x - hole.x);
-      let da = a1 - a0;
-      while (da > Math.PI) da -= Math.PI * 2;
-      while (da < -Math.PI) da += Math.PI * 2;
-      const out: THREE.Vector2[] = inside ? [] : [J];
-      for (let k = 1; k <= 8; k++) {
-        const ang = a0 + (da * k) / 8;
-        out.push(new THREE.Vector2(hole.x + Math.cos(ang) * hole.r, hole.y + Math.sin(ang) * hole.r));
+    // pair each jaw with the tip it starts from (the end rails list their jaws the other way round)
+    const j1 = t.cushions[i + 1];
+    const j2 = t.cushions[i + 2];
+    const startsAtA = (j: typeof j1) => Math.abs(j.ax - main.ax) < 1e-9 && Math.abs(j.ay - main.ay) < 1e-9;
+    const [ja, jb] = startsAtA(j1) ? [j1, j2] : [j2, j1];
+    runs.push({ a: new THREE.Vector2(main.ax, main.ay), b: new THREE.Vector2(main.bx, main.by), ka: back(ja), kb: back(jb), nx, ny });
+  }
+  // The opening cut in the rail round each pocket: a circle through the two jaw ends that meet
+  // there, bulging out into the rail, so cushion, jaw and rail meet with no gap and no overhang.
+  const holes: Circle[] = t.pockets.map((p) => {
+    const ends: THREE.Vector2[] = [];
+    for (const r of runs) {
+      for (const [tip, k] of [
+        [r.a, r.ka],
+        [r.b, r.kb],
+      ] as const) {
+        const nearest = t.pockets.reduce((best, q) => (Math.hypot(q.x - tip.x, q.y - tip.y) < Math.hypot(best.x - tip.x, best.y - tip.y) ? q : best));
+        if (nearest === p) ends.push(k);
       }
-      void a1;
-      return out;
-    };
-    const endB = end(b, jB);
-    const endA = end(a, jA).reverse();
-    const geo = keep(cushionGeometry([a, b, ...endB, ...endA], nx, ny, noseH));
-    const mesh = new THREE.Mesh(geo, cushionMat);
+    }
+    const [k1, k2] = ends;
+    const mx = (k1.x + k2.x) / 2;
+    const my = (k1.y + k2.y) / 2;
+    const h = Math.hypot(k2.x - k1.x, k2.y - k1.y) / 2;
+    // out of the table, square to the chord
+    let ux = -(k2.y - k1.y);
+    let uy = k2.x - k1.x;
+    if (ux * mx + uy * my < 0) [ux, uy] = [-ux, -uy];
+    const ul = Math.hypot(ux, uy);
+    const r = h * 1.08;
+    const d = Math.sqrt(r * r - h * h);
+    return { x: mx + (ux / ul) * d, y: my + (uy / ul) * d, r };
+  });
+
+  const cushionMat = keep(new THREE.MeshStandardMaterial({ color: new THREE.Color(t.cloth).multiplyScalar(0.8), roughness: 0.9 }));
+  const noseH = 1.3 * R;
+  for (const r of runs) {
+    const mesh = new THREE.Mesh(keep(cushionGeometry([r.a, r.b, r.kb, r.ka], r.nx, r.ny, noseH)), cushionMat);
     mesh.castShadow = true;
     mesh.receiveShadow = true;
     group.add(mesh);
@@ -321,10 +311,16 @@ export function buildTable(t: TableSpec): TableModel {
   const wellMat = keep(new THREE.MeshStandardMaterial({ color: '#050505', roughness: 1, side: THREE.DoubleSide }));
   const lipMat = keep(new THREE.MeshStandardMaterial({ color: '#141414', roughness: 0.45, metalness: 0.2 }));
   const metalMat = keep(new THREE.MeshStandardMaterial({ color: t.id === 'snooker' ? '#b8913f' : '#9aa0a6', roughness: 0.25, metalness: 0.9 }));
-  for (const [i, p] of t.pockets.entries()) {
-    const r = holes[i].r;
+  for (const [i, pk] of t.pockets.entries()) {
+    const p = holes[i];
+    const r = p.r;
     const well = new THREE.Mesh(keep(new THREE.CylinderGeometry(r * 0.985, r * 0.8, 0.16, 40, 1, true)), wellMat);
     well.position.set(p.x, -0.08, -p.y);
+    // darkness under the drop, where it reaches past the opening (in front of middle pockets)
+    const under = new THREE.Mesh(keep(new THREE.CircleGeometry(pk.r * 1.04, 40)), wellMat);
+    under.rotation.x = -Math.PI / 2;
+    under.position.set(pk.x, -0.04, -pk.y);
+    group.add(under);
     // black leather lining the opening where it's cut into the rail (only that arc: towards the
     // bed the opening is open, or it would stand in front of the pocket like a bucket)
     let start = -1;
@@ -346,7 +342,7 @@ export function buildTable(t: TableSpec): TableModel {
       liner.position.set(p.x, railH / 2, -p.y);
       group.add(liner);
       // a flat rim on the rail round the same arc (brass/chrome on corners, rubber on middles)
-      const rim = new THREE.Mesh(keep(new THREE.RingGeometry(r * 0.99, r + 0.011, 40, 1, phi, (len / N) * Math.PI * 2)), p.kind === 'corner' ? metalMat : lipMat);
+      const rim = new THREE.Mesh(keep(new THREE.RingGeometry(r * 0.99, r + 0.011, 40, 1, phi, (len / N) * Math.PI * 2)), pk.kind === 'corner' ? metalMat : lipMat);
       rim.rotation.x = -Math.PI / 2;
       rim.position.set(p.x, railH + 0.0008, -p.y);
       group.add(rim);

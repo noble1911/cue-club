@@ -35,6 +35,10 @@ the Node server runs the TypeScript directly. See README.md for the file map.
 - Table meshes are built from the physics geometry (`src/render/table.ts`). Outlines with pocket
   openings are walked round the rectangle (`outline()`), never sorted by angle (that zig-zags at the
   corners); cushions are built face by face, never extruded with a bevel (it folds at the jaws).
+  Pockets are derived from the physics, never sized by eye: cushion ends follow the jaw lines to
+  the cushion's back, the rail opening is a circle through those two jaw ends, and the cloth bite
+  is the physics drop circle (`Pocket.r`). Jaws are paired with the tip they start from (the end
+  rails list them the other way round from the long rails).
 - Balls don't cast shadow-map shadows (lit from straight above, only a ring shows): each has a soft
   contact shadow instead. Lamp fittings fade out whenever they cover the table on screen.
 - three r186: `PCFSoftShadowMap` is gone (use `PCFShadowMap`); judge the look with the real GPU
