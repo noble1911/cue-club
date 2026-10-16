@@ -144,11 +144,25 @@ class Sound {
     return b;
   }
 
-  /** A sum of damped sinusoids plus an optional noise transient. */
-  private modal(seconds: number, modes: Mode[], crack: number, crackTau: number, seed: number, lowpass = 0): AudioBuffer {
+  /**
+   * A sum of damped sinusoids plus an optional noise transient. `attack` adds the impact itself:
+   * a very short, unfiltered burst with a quick knock at `freq`, loudest at the first sample.
+   */
+  private modal(
+    seconds: number,
+    modes: Mode[],
+    crack: number,
+    crackTau: number,
+    seed: number,
+    lowpass = 0,
+    opts: { fadeIn?: number; attack?: { amp: number; tau: number; freq: number } } = {},
+  ): AudioBuffer {
     const rnd = noiseGen(seed);
+    const raw = noiseGen(seed * 7 + 3);
     let lp = 0;
     const phases = modes.map(() => (rnd() + 1) * Math.PI);
+    const fadeIn = opts.fadeIn ?? 0.001;
+    const atk = opts.attack;
     return this.render(seconds, (t) => {
       let v = 0;
       for (let k = 0; k < modes.length; k++) {
@@ -160,8 +174,9 @@ class Sound {
         lp += lowpass * (n - lp);
         n = lp;
       }
-      // a 1 ms fade-in so nothing clicks digitally
-      return (v + n) * Math.min(1, t / 0.001);
+      const hit = atk ? atk.amp * Math.exp(-t / atk.tau) * (0.55 * raw() + Math.sin(2 * Math.PI * atk.freq * t + Math.PI / 2)) : 0;
+      // a tiny fade-in so nothing pops digitally (short enough not to blunt an attack)
+      return (v + n + hit) * Math.min(1, t / fadeIn);
     });
   }
 
@@ -184,6 +199,8 @@ class Sound {
         0.0011,
         100 + i,
         0.6,
+        // the clack: the instant of contact, a sharp unfiltered burst with a quick knock
+        { fadeIn: 0.00008, attack: { amp: 2.2, tau: 0.0006, freq: vary(1900, i + 140, 0.06) } },
       ),
     );
     // Cushion: the rubber and wooden rail, a dull thump with a soft knock on top.
@@ -338,7 +355,7 @@ class Sound {
       if (now - this.lastClick < 0.004) return;
       this.lastClick = now;
       // harder → louder and brighter (more of the high modes get through)
-      this.voice(this.pick('click'), 0.08 + Math.pow(v, 0.7) * 0.9, { pan, lowpass: 2400 + v * 6500, rate: 0.96 + Math.random() * 0.08 });
+      this.voice(this.pick('click'), 0.08 + Math.pow(v, 0.7) * 0.9, { pan, lowpass: 3200 + v * 6000, rate: 0.96 + Math.random() * 0.08 });
     } else if (e.type === 'cushion') {
       this.voice(this.pick('cushion'), 0.06 + Math.pow(v, 0.8) * 0.7, { pan, lowpass: 600 + v * 3000, rate: 0.92 + Math.random() * 0.16 });
     } else {
