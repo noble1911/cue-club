@@ -474,7 +474,8 @@ class Sound {
       src.loopStart = 0.5;
       src.loopEnd = Math.min(buffer.duration - 0.01, 60.5);
       const g = ctx.createGain();
-      const level = theme === 'club' ? 0.5 : theme === 'pub' ? 0.42 : 0.4;
+      // well behind the game: a hush in the club, a muffled murmur in the pub and the hall
+      const level = theme === 'club' ? 0.6 : theme === 'pub' ? 0.3 : 0.28;
       g.gain.setValueAtTime(0, ctx.currentTime);
       g.gain.linearRampToValueAtTime(level, ctx.currentTime + 2);
       src.connect(g).connect(this.amb!);
@@ -489,9 +490,9 @@ class Sound {
       const pan = Math.random() * 1.6 - 0.8;
       const n = 1 + Math.floor(Math.random() * 3);
       for (let k = 0; k < n; k++) this.voice(this.pick('click'), 0.025 + Math.random() * 0.02, { pan, lowpass: 1600, when: k * (0.05 + Math.random() * 0.25), dest: this.amb!, rate: 0.9 });
-      this.ambTimer = setTimeout(tick, 6000 + Math.random() * 12000);
+      this.ambTimer = setTimeout(tick, 20000 + Math.random() * 25000);
     };
-    this.ambTimer = setTimeout(tick, 4000 + Math.random() * 6000);
+    this.ambTimer = setTimeout(tick, 12000 + Math.random() * 15000);
   }
 }
 
