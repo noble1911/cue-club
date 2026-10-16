@@ -124,7 +124,7 @@ export const UK8: Rules = {
     const scored = isBreak ? potted.length > 0 : group ? potted.some((id) => colourOf(id) === group) : false;
     rule.freeShot = false;
     if (scored) {
-      const named = !mine && group ? `@${me} is ${group === 'red' ? 'reds' : 'yellows'}` : `@${me} pots ${potted.length === 1 ? 'one' : potted.length}`;
+      const named = !mine && group ? `@${me} takes ${group === 'red' ? 'reds' : 'yellows'}` : `@${me} pots ${potted.length === 1 ? 'one' : potted.length}`;
       return next(f, after, { rule, message: named });
     }
     if (rule.visits > 0) {

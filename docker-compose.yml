@@ -1,0 +1,21 @@
+# Cue Club on the home server: https://games.noblehaus.uk/cue-club/ (games gateway)
+# LAN: http://192.168.1.117:3009/  ·  deploy from the laptop with `npm run deploy`
+services:
+  cue-club:
+    build: .
+    container_name: cue-club
+    ports:
+      - "3009:3000"
+    networks:
+      - homeserver
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:3000/healthz"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+
+networks:
+  homeserver:
+    external: true

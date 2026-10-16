@@ -1,0 +1,135 @@
+// Browser smoke test: drives the installed Chrome through the menu, a game against the
+// computer, and a three-player online knockout (separate browser contexts = separate players),
+// checking that every player sees the same table after each refereed shot. Screenshots in
+// e2e/shots/.
+//   npm run build && npm run e2e        (CHROME=… to override; E2E_GPU=swiftshader off a Mac)
+import puppeteer from 'puppeteer-core';
+import fs from 'node:fs';
+import path from 'node:path';
+import { startServer } from '../server/index.ts';
+
+const CHROME = process.env.CHROME || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+const SHOTS = process.env.SHOTS || 'e2e/shots';
+const GPU = process.env.E2E_GPU || (process.platform === 'darwin' ? 'metal' : 'swiftshader');
+fs.mkdirSync(SHOTS, { recursive: true });
+process.env.FRAME_PAUSE_MS = '1500';
+
+const server = await startServer(0);
+const base = `http://127.0.0.1:${server.address().port}/`;
+const browser = await puppeteer.launch({ executablePath: CHROME, headless: true, args: [`--use-angle=${GPU}`, '--enable-gpu', '--ignore-gpu-blocklist'] });
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const errors = [];
+let failures = 0;
+const check = (cond, what) => {
+  console.log(`${cond ? '✔' : '✖'} ${what}`);
+  if (!cond) failures++;
+};
+const shot = (page, name) => page.screenshot({ path: path.join(SHOTS, `${name}.png`) });
+
+async function newPage(name, width = 1280, height = 800) {
+  const ctx = await browser.createBrowserContext();
+  const page = await ctx.newPage();
+  await page.setViewport({ width, height });
+  page.on('pageerror', (e) => errors.push(`${name}: ${e.message}`));
+  page.on('console', (m) => m.type() === 'error' && errors.push(`${name}: ${m.text()}`));
+  await page.goto(base, { waitUntil: 'networkidle0' });
+  return page;
+}
+
+const myTurn = (p) => p.$eval('.table-screen', (e) => e.classList.contains('my-turn')).catch(() => false);
+async function pullAndShoot(p, amount) {
+  const box = await p.$eval('.power-track', (e) => {
+    const r = e.getBoundingClientRect();
+    return { x: r.left + r.width / 2, y: r.top + 4, h: r.height };
+  });
+  await p.mouse.move(box.x, box.y);
+  await p.mouse.down();
+  await p.mouse.move(box.x, box.y + box.h * amount, { steps: 6 });
+  await p.mouse.up();
+}
+const tableState = (p) =>
+  p.evaluate(() => {
+    const m = window.__cue.match();
+    return m ? JSON.stringify([m.frame.turn, m.frame.balls.map((b) => [b.id, b.on, b.x, b.y])]) : null;
+  });
+
+try {
+  // ------------------------------------------------------------ vs the computer
+  const solo = await newPage('solo');
+  await shot(solo, 'menu');
+  check(!!(await solo.$('.game[data-v="snooker"]')), 'menu lists the four games');
+  await solo.click('.game[data-v="uk8"]');
+  await solo.click('.modes button[data-m="ai"]');
+  await solo.click('.lvl button[data-l="easy"]');
+  await solo.click('.go');
+  let mine = 0;
+  for (let i = 0; i < 40 && mine < 2; i++) {
+    await sleep(800);
+    if (!(await myTurn(solo))) continue;
+    const before = await tableState(solo);
+    await pullAndShoot(solo, mine === 0 ? 0.85 : 0.4);
+    mine++;
+    await sleep(600);
+    await shot(solo, `solo-shot-${mine}`);
+    for (let k = 0; k < 30 && (await tableState(solo)) === before; k++) await sleep(500);
+    check((await tableState(solo)) !== before, `vs computer: shot ${mine} played`);
+  }
+  check(mine === 2, 'vs computer: the computer took its turns and handed the table back');
+
+  // ------------------------------------------------------------ online knockout, three players
+  const ann = await newPage('Ann', 1100, 700);
+  await ann.click('.game[data-v="nine"]');
+  await ann.click('.modes button[data-m="online"]');
+  await ann.$eval('.n1', (e) => ((e.value = 'Ann'), e.dispatchEvent(new Event('input'))));
+  await ann.click('.create');
+  await ann.waitForSelector('.code-big');
+  const code = await ann.$eval('.code-big', (e) => e.textContent.trim());
+  const players = { Ann: ann };
+  for (const n of ['Bob', 'Cat']) {
+    const p = await newPage(n, 1100, 700);
+    await p.click('.modes button[data-m="online"]');
+    await p.$eval('.n1', (e, v) => ((e.value = v), e.dispatchEvent(new Event('input'))), n);
+    await p.$eval('.code', (e, c) => (e.value = c), code);
+    await p.click('.join');
+    await p.waitForSelector('.members');
+    players[n] = p;
+  }
+  await sleep(400);
+  check((await ann.$eval('.start', (e) => e.textContent)).includes('3 players'), 'online: three players in the room, host can start a tournament');
+  await shot(ann, 'online-lobby');
+  await ann.click('.start');
+  await sleep(1500);
+  let played = 0;
+  for (let i = 0; i < 30 && played < 3; i++) {
+    await sleep(1000);
+    for (const [n, p] of Object.entries(players)) {
+      if (!(await myTurn(p))) continue;
+      await pullAndShoot(p, 0.8);
+      played++;
+      await sleep(9000);
+      const states = (await Promise.all(Object.values(players).map(tableState))).filter(Boolean);
+      check(states.length === 2 && states[0] === states[1], `online: shot ${played} by ${n}, both players see the same table`);
+      break;
+    }
+  }
+  check(played === 3, 'online: three shots refereed');
+  // the player with a bye watches from the bracket
+  let watched = false;
+  for (const [n, p] of Object.entries(players)) {
+    const btn = await p.$('.bracket .watch');
+    if (!btn) continue;
+    await shot(p, `online-bracket-${n}`);
+    await btn.click();
+    await sleep(1200);
+    watched = !!(await p.$('.table-screen')) && (await p.$eval('.htitle', (e) => e.textContent)).includes('watching');
+    await shot(p, `online-watching-${n}`);
+  }
+  check(watched, 'online: the player with a bye can watch the semi-final');
+} finally {
+  check(errors.length === 0, `no page errors${errors.length ? ': ' + errors.join(' | ') : ''}`);
+  await browser.close();
+  server.closeAllConnections();
+  server.close();
+}
+console.log(failures ? `${failures} failed` : 'all passed');
+process.exit(failures ? 1 : 0);

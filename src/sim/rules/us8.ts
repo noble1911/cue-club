@@ -110,7 +110,7 @@ export const US8: Rules = {
     const scored = isBreak ? own.length > 0 : group ? own.some((id) => groupOf(id) === group) : false;
     if (scored) {
       const fresh = !(f.rule as UsRule).groups && rule.groups;
-      return next(f, after, { rule, message: fresh ? `@${me} has ${group}` : `@${me} keeps the table` });
+      return next(f, after, { rule, message: fresh ? `@${me} takes ${group}` : `@${me} keeps the table` });
     }
     return next(f, after, { turn: opp, rule, message: `@${opp} to shoot` });
   },

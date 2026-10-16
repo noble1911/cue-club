@@ -135,7 +135,14 @@ export function nextFrame(m: Match): Match {
   return out;
 }
 
-/** Swap "@0"/"@1" for names. */
+/** Swap "@0"/"@1" for names (and mend the verb when a player is simply called "You"). */
 export function say(text: string, names: readonly string[]): string {
-  return text.replace(/@([01])/g, (_, i) => names[Number(i)]);
+  return text.replace(/@([01])/g, (_, i) => names[Number(i)]).replace(/\bYou ([a-z]+s)\b/g, (_, verb: string) => `You ${secondPerson(verb)}`);
+}
+
+function secondPerson(verb: string): string {
+  if (verb === 'has') return 'have';
+  if (verb === 'is') return 'are';
+  if (/(ss|sh|ch|x)es$/.test(verb)) return verb.slice(0, -2);
+  return verb.slice(0, -1);
 }

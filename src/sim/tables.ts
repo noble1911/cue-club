@@ -225,7 +225,7 @@ export const POOL_US = build({
   eCushion: 0.78,
   cushionWidth: 0.05,
   railWidth: 0.13,
-  cloth: '#1b6fa8',
+  cloth: '#17598c',
 });
 
 export const TABLES: Record<TableId, TableSpec> = { snooker: SNOOKER, 'pool-uk': POOL_UK, 'pool-us': POOL_US };
