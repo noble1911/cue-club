@@ -9,7 +9,6 @@ COPY package.json package-lock.json ./
 RUN npm ci --no-audit --no-fund
 COPY tsconfig.json vite.config.ts index.html ./
 COPY src ./src
-COPY public ./public
 COPY server ./server
 COPY tests ./tests
 RUN npm run build && npx vitest run

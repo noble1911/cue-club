@@ -37,7 +37,8 @@ the Node server runs the TypeScript directly. See README.md for the file map.
   loudness/brightness from the impact speed and stereo pan from the ball's place on screen
   (`view.panFor`). Cloth rumble follows `view.onRolling`; each room theme sets the echo, the
   pocket (net for snooker, ball return for pool) and the ambience. A limiter and a 28-voice cap
-  keep breaks clean. Room ambience is recorded (CC0, BigSoundBank, `public/sounds/CREDITS.md`):
+  keep breaks clean. Room ambience is recorded (CC0, BigSoundBank, `src/assets/sounds/CREDITS.md`, imported with
+  `?url` so the build gives them content-hashed names):
   60 s seamless loops with 0.5 s guard audio at each end (MP3 pads its ends; the player loops
   0.5 … 60.5 s). Rebuild them with ffmpeg: equal-power crossfade, loudnorm, then the guard pad.
 - Table meshes are built from the physics geometry (`src/render/table.ts`). Outlines with pocket

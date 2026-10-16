@@ -17,7 +17,7 @@ room's host sets the aim guide (full, short or off) for everyone.
 Sound is synthesised from the physics (ball clicks, cushions, the cue tip, pockets with a ball
 return or a net, cloth rumble), panned to where it happens, with each room's echo and snooker applause. The room
 ambience is real recordings (CC0, from [BigSoundBank](https://bigsoundbank.com); see
-`public/sounds/CREDITS.md`). Volume and ambience are in the pause menu.
+`src/assets/sounds/CREDITS.md`). Volume and ambience are in the pause menu.
 
 Each game has its own room: snooker in a panelled club, UK 8-ball in a pub, US 8-ball and 9-ball in
 a neon-lit pool hall.

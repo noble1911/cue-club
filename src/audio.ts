@@ -9,6 +9,13 @@
 import type { SimEvent } from './sim/physics.ts';
 import type { RoomTheme } from './render/room.ts';
 import { store } from './ui/dom.ts';
+// bundled with content-hashed names (assets/club-<hash>.mp3): a changed file gets a new URL, so
+// no cache (browser or Cloudflare) can ever hold on to an old or missing copy
+import clubBed from './assets/sounds/club.mp3?url';
+import pubBed from './assets/sounds/pub.mp3?url';
+import hallBed from './assets/sounds/hall.mp3?url';
+
+const BEDS: Record<RoomTheme, string> = { club: clubBed, pub: pubBed, hall: hallBed };
 
 type Pocket = 'net' | 'return';
 
@@ -440,7 +447,7 @@ class Sound {
   private bed(theme: RoomTheme): Promise<AudioBuffer | null> {
     let p = this.beds.get(theme);
     if (!p) {
-      const url = `${import.meta.env.BASE_URL}sounds/${theme}.mp3`;
+      const url = BEDS[theme];
       p = fetch(url)
         .then((r) => (r.ok ? r.arrayBuffer() : Promise.reject(new Error(`${url}: ${r.status}`))))
         .then((data) => this.ctx!.decodeAudioData(data))
@@ -457,7 +464,7 @@ class Sound {
   private startAmbience(): void {
     const ctx = this.ctx!;
     const theme = this.theme;
-    // the room itself: a real recording (CC0, see public/sounds/CREDITS.md), looped seamlessly.
+    // the room itself: a real recording (CC0, see src/assets/sounds/CREDITS.md), looped seamlessly.
     // Each file has 0.5 s of guard audio at both ends; loop exactly the 60 s between them.
     void this.bed(theme).then((buffer) => {
       if (!buffer || !this.ctx || !this.ambience || this.theme !== theme) return;

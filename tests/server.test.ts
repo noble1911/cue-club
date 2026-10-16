@@ -248,3 +248,12 @@ describe('server', () => {
     again.ws.close();
   });
 });
+
+describe('caching', () => {
+  it('errors are never cached (Cloudflare would hold a 404 for hours)', async () => {
+    const base = url.replace('ws://', 'http://').replace('/ws', '');
+    const r = await fetch(base + '/no-such-file.mp3');
+    expect(r.status).toBe(404);
+    expect(r.headers.get('cache-control')).toBe('no-store');
+  });
+});

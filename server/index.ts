@@ -378,7 +378,7 @@ async function serveFile(rawUrl: string, res: import('node:http').ServerResponse
     url = new URL(rawUrl, 'http://x');
     p = decodeURIComponent(url.pathname);
   } catch {
-    res.writeHead(400, { 'Content-Type': 'text/plain' });
+    res.writeHead(400, { 'Content-Type': 'text/plain', 'Cache-Control': 'no-store' });
     return void res.end('bad request');
   }
   if (url.pathname === '/healthz') {
@@ -388,14 +388,16 @@ async function serveFile(rawUrl: string, res: import('node:http').ServerResponse
   if (p.endsWith('/')) p += 'index.html';
   const file = join(ROOT, normalize(p));
   // inside dist/ itself (a bare prefix check would also let in a sibling like dist-old/)
+  // errors are never cached: Cloudflare otherwise holds a 404 for hours (a file briefly missing
+  // mid-deploy stays "missing" for everyone)
   if (!file.startsWith(ROOT + sep)) {
-    res.writeHead(403);
+    res.writeHead(403, { 'Cache-Control': 'no-store' });
     return void res.end();
   }
   try {
     if (!(await stat(file)).isFile()) throw new Error('not a file');
   } catch {
-    res.writeHead(404, { 'Content-Type': 'text/plain' });
+    res.writeHead(404, { 'Content-Type': 'text/plain', 'Cache-Control': 'no-store' });
     return void res.end('not found');
   }
   const ext = extname(file);
