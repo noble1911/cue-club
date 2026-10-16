@@ -39,6 +39,7 @@ const AIM_MIN_MS = 40;
 const TYPES: Record<string, string> = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json',
   '.svg': 'image/svg+xml', '.png': 'image/png', '.jpg': 'image/jpeg', '.webp': 'image/webp', '.glb': 'model/gltf-binary',
+  '.mp3': 'audio/mpeg', '.md': 'text/markdown; charset=utf-8',
 };
 
 interface Member {

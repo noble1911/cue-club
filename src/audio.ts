@@ -434,84 +434,57 @@ class Sound {
     this.ambTimer = null;
   }
 
-  private loopNoise(gain: number, type: BiquadFilterType, freq: number, q = 0.7): GainNode {
-    const ctx = this.ctx!;
-    const src = ctx.createBufferSource();
-    src.buffer = this.buf.noise[0];
-    src.loop = true;
-    src.loopStart = Math.random();
-    const f = ctx.createBiquadFilter();
-    f.type = type;
-    f.frequency.value = freq;
-    f.Q.value = q;
-    const g = ctx.createGain();
-    g.gain.value = gain;
-    src.connect(f).connect(g).connect(this.amb!);
-    src.start(0, Math.random() * 1.5);
-    this.ambNodes.push(src, f, g);
-    return g;
+  /** Recorded room ambience, fetched once per room. */
+  private beds = new Map<RoomTheme, Promise<AudioBuffer | null>>();
+
+  private bed(theme: RoomTheme): Promise<AudioBuffer | null> {
+    let p = this.beds.get(theme);
+    if (!p) {
+      const url = `${import.meta.env.BASE_URL}sounds/${theme}.mp3`;
+      p = fetch(url)
+        .then((r) => (r.ok ? r.arrayBuffer() : Promise.reject(new Error(`${url}: ${r.status}`))))
+        .then((data) => this.ctx!.decodeAudioData(data))
+        .catch((e) => {
+          console.warn('ambience unavailable', e);
+          this.beds.delete(theme);
+          return null;
+        });
+      this.beds.set(theme, p);
+    }
+    return p;
   }
 
   private startAmbience(): void {
     const ctx = this.ctx!;
-    // room tone everywhere: a low, quiet air
-    this.loopNoise(0.05, 'lowpass', 160);
-    if (this.theme === 'pub') {
-      // a murmur of voices: a few bands of noise breathing in and out at speech rates
-      for (const [f, g] of [
-        [420, 0.035],
-        [780, 0.025],
-        [1250, 0.014],
-      ] as const) {
-        const band = this.loopNoise(g, 'bandpass', f, 1.4);
-        const lfo = ctx.createOscillator();
-        const depth = ctx.createGain();
-        lfo.frequency.value = 0.6 + Math.random() * 1.6;
-        depth.gain.value = g * 0.7;
-        lfo.connect(depth).connect(band.gain);
-        lfo.start();
-        this.ambNodes.push(lfo, depth);
-      }
-    }
-    if (this.theme === 'hall') {
-      // the neon's hum
-      for (const [f, g] of [
-        [100, 0.012],
-        [200, 0.005],
-      ] as const) {
-        const o = ctx.createOscillator();
-        o.frequency.value = f;
-        const og = ctx.createGain();
-        og.gain.value = g;
-        o.connect(og).connect(this.amb!);
-        o.start();
-        this.ambNodes.push(o, og);
-      }
-      this.loopNoise(0.012, 'bandpass', 650, 1.2);
-    }
-    // now and then: a shot at another table, or (in the pub) a glass
+    const theme = this.theme;
+    // the room itself: a real recording (CC0, see public/sounds/CREDITS.md), looped seamlessly.
+    // Each file has 0.5 s of guard audio at both ends; loop exactly the 60 s between them.
+    void this.bed(theme).then((buffer) => {
+      if (!buffer || !this.ctx || !this.ambience || this.theme !== theme) return;
+      const src = ctx.createBufferSource();
+      src.buffer = buffer;
+      src.loop = true;
+      src.loopStart = 0.5;
+      src.loopEnd = Math.min(buffer.duration - 0.01, 60.5);
+      const g = ctx.createGain();
+      const level = theme === 'club' ? 0.5 : theme === 'pub' ? 0.42 : 0.4;
+      g.gain.setValueAtTime(0, ctx.currentTime);
+      g.gain.linearRampToValueAtTime(level, ctx.currentTime + 2);
+      src.connect(g).connect(this.amb!);
+      // start somewhere different each time so it isn't always the same opening
+      src.start(0, 0.5 + Math.random() * 59);
+      this.ambNodes.push(src, g);
+    });
+    if (theme === 'pub') return;
+    // now and then, a shot at another table (snooker club, pool hall)
     const tick = () => {
-      if (!this.ctx || !this.ambience) return;
+      if (!this.ctx || !this.ambience || this.theme !== theme) return;
       const pan = Math.random() * 1.6 - 0.8;
-      if (this.theme === 'pub' && Math.random() < 0.45) {
-        const o = ctx.createOscillator();
-        const g = ctx.createGain();
-        o.frequency.value = 2600 + Math.random() * 2400;
-        g.gain.setValueAtTime(0.03, ctx.currentTime);
-        g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.35);
-        const p = ctx.createStereoPanner();
-        p.pan.value = pan;
-        o.connect(g).connect(p).connect(this.amb!);
-        o.start();
-        o.stop(ctx.currentTime + 0.4);
-      } else {
-        // a distant break-off or pot: two or three far-away clicks
-        const n = 1 + Math.floor(Math.random() * 3);
-        for (let k = 0; k < n; k++) this.voice(this.pick('click'), 0.035 + Math.random() * 0.03, { pan, lowpass: 1600, when: k * (0.05 + Math.random() * 0.25), dest: this.amb!, rate: 0.9 });
-      }
-      this.ambTimer = setTimeout(tick, 3500 + Math.random() * 9000);
+      const n = 1 + Math.floor(Math.random() * 3);
+      for (let k = 0; k < n; k++) this.voice(this.pick('click'), 0.025 + Math.random() * 0.02, { pan, lowpass: 1600, when: k * (0.05 + Math.random() * 0.25), dest: this.amb!, rate: 0.9 });
+      this.ambTimer = setTimeout(tick, 6000 + Math.random() * 12000);
     };
-    this.ambTimer = setTimeout(tick, 2000 + Math.random() * 4000);
+    this.ambTimer = setTimeout(tick, 4000 + Math.random() * 6000);
   }
 }
 
