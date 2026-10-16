@@ -23,6 +23,8 @@ export interface TableScreenOptions {
   aiLevel?: AiLevel;
   /** A label above the message, e.g. "Semi-final". */
   title?: string;
+  /** Online: the room's aim guide, set by the host (the player can't change it). */
+  guide?: GuideLength;
   online?: {
     shot(shot: Shot, n: number): void;
     aim(aim: Aim): void;
@@ -105,8 +107,9 @@ export class TableScreen {
       this.$[k] = this.dom.querySelector('.' + k)!;
     }
     o.root.appendChild(this.dom);
-    this.view.guideLength = (store.get('guide') as GuideLength) ?? 'full';
-    this.view.mode = (store.get('camera') as 'aim' | 'top') ?? 'aim';
+    this.view.guideLength = o.guide ?? (store.get('guide') as GuideLength) ?? 'full';
+    const cam = store.get('camera');
+    this.view.mode = cam === 'top' || cam === 'sight' ? cam : 'aim';
     this.view.setVariant(rulesOf(this.match));
     this.view.setBalls(this.match.frame.balls);
     this.view.snapCamera();
@@ -341,7 +344,7 @@ export class TableScreen {
   private onFrame(dt: number): void {
     if (this.disposed) return;
     if (this.myTurn) {
-      const fine = this.keys.has('Shift') ? 0.08 : 1;
+      const fine = (this.keys.has('Shift') ? 0.08 : 1) * (this.view.mode === 'sight' ? 0.35 : 1);
       let turn = 0;
       if (this.keys.has('ArrowLeft')) turn += 1;
       if (this.keys.has('ArrowRight')) turn -= 1;
@@ -413,9 +416,10 @@ export class TableScreen {
         return;
       }
       if (this.view.mode === 'top') return this.aimAtPointer(e);
-      const fine = e.shiftKey ? 0.12 : 1;
+      // down the cue you're making the finest adjustments
+      const fine = (e.shiftKey ? 0.12 : 1) * (this.view.mode === 'sight' ? 0.3 : 1);
       this.setAimAngle(drag.angle - (e.clientX - drag.x) * 0.0045 * fine);
-      this.view.pitch = clamp(drag.pitch + (e.clientY - drag.y) * 0.004, 0, 1);
+      if (this.view.mode === 'aim') this.view.pitch = clamp(drag.pitch + (e.clientY - drag.y) * 0.004, 0, 1);
       this.syncView();
     };
     const onUp = () => {
@@ -536,6 +540,7 @@ export class TableScreen {
     // buttons
     this.dom.querySelector('.t-cam')!.addEventListener('click', () => this.toggleCamera());
     this.dom.querySelector('.t-guide')!.addEventListener('click', () => {
+      if (this.o.guide) return this.flash('The host sets the aim guide for this room');
       const order: GuideLength[] = ['full', 'short', 'off'];
       this.view.guideLength = order[(order.indexOf(this.view.guideLength) + 1) % 3];
       store.set('guide', this.view.guideLength);
@@ -564,7 +569,7 @@ export class TableScreen {
   }
 
   private toggleCamera(): void {
-    this.view.mode = this.view.mode === 'top' ? 'aim' : 'top';
+    this.view.mode = this.view.mode === 'aim' ? 'sight' : this.view.mode === 'sight' ? 'top' : 'aim';
     store.set('camera', this.view.mode);
     this.refreshTools();
     this.refreshHint();
@@ -592,8 +597,9 @@ export class TableScreen {
   // ---------------------------------------------------------------- HUD
 
   private refreshTools(): void {
-    this.$['t-guide'].textContent = `◎ Guide: ${this.view.guideLength}`;
-    this.$['t-cam'].textContent = this.view.mode === 'top' ? '⤢ Overhead' : '⤢ Cue view';
+    this.$['t-guide'].textContent = `◎ Guide: ${this.view.guideLength}${this.o.guide ? ' 🔒' : ''}`;
+    this.$['t-guide'].title = this.o.guide ? 'Set by the room host' : 'Aim guide';
+    this.$['t-cam'].textContent = this.view.mode === 'top' ? '⤢ Overhead' : this.view.mode === 'sight' ? '⤢ Sight' : '⤢ Cue view';
     this.$['p-sound'].textContent = sound.muted ? 'Sound: off' : 'Sound: on';
     const canConcede = this.o.seats.includes('human') && !this.match.frame.over;
     this.$['p-concede'].classList.toggle('hidden', !canConcede);
@@ -645,7 +651,7 @@ export class TableScreen {
     else if (seat === 'ai') h = `${esc(this.names[this.turn])} is thinking…`;
     else if (seat === 'remote') h = `${esc(this.names[this.turn])} is lining up…`;
     else {
-      const aim = this.view.mode === 'top' ? 'Drag on the table to aim' : 'Drag left/right to aim, up/down to tilt';
+      const aim = this.view.mode === 'top' ? 'Drag on the table to aim' : this.view.mode === 'sight' ? 'Looking down the cue: drag left/right to fine-tune' : 'Drag left/right to aim, up/down to tilt';
       h = (f.inHand ? 'Ball in hand: drag the cue ball to place it · ' : '') + `${aim} · pull the power bar to shoot`;
     }
     this.$['hint'].textContent = h;

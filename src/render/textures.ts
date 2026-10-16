@@ -120,7 +120,7 @@ export function woodTexture(base: string, dark: string, seed = 3): THREE.Texture
  * A ball's skin, equirectangular (2:1) for three's SphereGeometry: u around the equator, v pole to
  * pole. Near the equator a circle of radius r pixels on the canvas is a circle on the ball.
  */
-export function ballTexture(look: BallLook, isCue: boolean): THREE.Texture {
+export function ballTexture(look: BallLook): THREE.Texture {
   const W = 512;
   const H = 256;
   const [c, ctx] = canvas(W, H);
@@ -146,27 +146,6 @@ export function ballTexture(look: BallLook, isCue: boolean): THREE.Texture {
       ctx.textBaseline = 'middle';
       ctx.fillText(String(look.number), u * W, H / 2 + 2);
       if (look.number === 6 || look.number === 9) ctx.fillRect(u * W - 8, H / 2 + 17, 16, 2.5);
-    }
-  }
-  if (isCue) {
-    // red spots, so you can see the cue ball spin
-    ctx.fillStyle = '#c0182a';
-    for (const [u, v] of [
-      [0, 0.5],
-      [0.25, 0.5],
-      [0.5, 0.5],
-      [0.75, 0.5],
-      [0.5, 0.06],
-      [0.5, 0.94],
-    ]) {
-      ctx.beginPath();
-      ctx.ellipse(u * W, v * H, v === 0.5 ? 9 : W / 2, 9, 0, 0, Math.PI * 2);
-      ctx.fill();
-      if (u === 0) {
-        ctx.beginPath();
-        ctx.ellipse(W, v * H, 9, 9, 0, 0, Math.PI * 2);
-        ctx.fill();
-      }
     }
   }
   noise(ctx, W, H, 5);

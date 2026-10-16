@@ -11,7 +11,7 @@
   --sans: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
 }
 * { box-sizing: border-box; }
-html, body { margin: 0; height: 100%; background: #0c0a09; color: var(--ink); font-family: var(--sans); overflow: hidden; -webkit-tap-highlight-color: transparent; }
+html, body { -webkit-user-select: none; user-select: none; margin: 0; height: 100%; background: #0c0a09; color: var(--ink); font-family: var(--sans); overflow: hidden; -webkit-tap-highlight-color: transparent; }
 #stage { position: fixed; inset: 0; }
 #stage canvas { display: block; }
 #ui { position: fixed; inset: 0; pointer-events: none; }
@@ -23,7 +23,7 @@ button:active { transform: translateY(1px); }
 button:disabled { opacity: 0.5; cursor: default; }
 button.primary { background: linear-gradient(180deg, #e3c07c, #b88f45); color: #1b1408; border-color: #e9cd92; font-weight: 700; }
 button.primary:hover { background: linear-gradient(180deg, #ecd096, #c49b52); }
-input, select { font: inherit; color: var(--ink); background: rgba(0, 0, 0, 0.35); border: 1px solid var(--line); border-radius: 9px; padding: 8px 10px; min-width: 0; }
+input, select { -webkit-user-select: text; user-select: text; font: inherit; color: var(--ink); background: rgba(0, 0, 0, 0.35); border: 1px solid var(--line); border-radius: 9px; padding: 8px 10px; min-width: 0; }
 input:focus, select:focus { outline: 2px solid var(--brass-dim); outline-offset: 1px; }
 .muted { color: var(--muted); font-size: 0.9em; }
 .err { color: var(--foul); min-height: 1.2em; margin: 4px 0 0; }

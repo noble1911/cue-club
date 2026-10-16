@@ -13,46 +13,163 @@ interface Circle {
 
 /**
  * Outline of a rectangle (half sizes A × B) with circles either added to it (`union`, the rail's
- * inner edge with the pocket openings) or bitten out of it (the bed). The result is star-shaped
- * from the centre, so sorting the boundary points by angle gives the polygon.
+ * inner edge with the pocket openings) or bitten out of it (the bed). Walks round the rectangle
+ * anticlockwise and, wherever a circle crosses the edge, swaps that stretch for the circle's arc
+ * (the outside arc for a union, the inside one for a bite). Each circle must cross the edge
+ * exactly twice and the circles mustn't overlap: true of pockets.
  */
-function outline(A: number, B: number, circles: Circle[], mode: 'union' | 'subtract', perCircle = 40): THREE.Vector2[] {
-  const inRect = (x: number, y: number) => Math.abs(x) <= A + 1e-9 && Math.abs(y) <= B + 1e-9;
-  const inCircle = (x: number, y: number) => circles.some((c) => (x - c.x) ** 2 + (y - c.y) ** 2 < c.r * c.r - 1e-12);
-  const pts: THREE.Vector2[] = [];
-  // rectangle edges, sampled, kept where they're on the outline
-  const edge = (x0: number, y0: number, x1: number, y1: number) => {
-    const n = 120;
-    for (let i = 0; i <= n; i++) {
-      const x = x0 + ((x1 - x0) * i) / n;
-      const y = y0 + ((y1 - y0) * i) / n;
-      if (!inCircle(x, y)) pts.push(new THREE.Vector2(x, y));
-    }
+export function outline(A: number, B: number, circles: Circle[], mode: 'union' | 'subtract', perCircle = 40): THREE.Vector2[] {
+  const P = 4 * A + 4 * B;
+  const at = (s: number): THREE.Vector2 => {
+    s = ((s % P) + P) % P;
+    if (s < 2 * A) return new THREE.Vector2(-A + s, -B);
+    s -= 2 * A;
+    if (s < 2 * B) return new THREE.Vector2(A, -B + s);
+    s -= 2 * B;
+    if (s < 2 * A) return new THREE.Vector2(A - s, B);
+    s -= 2 * A;
+    return new THREE.Vector2(-A, B - s);
   };
-  edge(-A, -B, A, -B);
-  edge(A, -B, A, B);
-  edge(A, B, -A, B);
-  edge(-A, B, -A, -B);
-  for (const c of circles) {
-    for (let i = 0; i < perCircle * 4; i++) {
-      const a = (i / (perCircle * 4)) * Math.PI * 2;
-      const x = c.x + Math.cos(a) * c.r;
-      const y = c.y + Math.sin(a) * c.r;
-      const others = circles.filter((o) => o !== c);
-      const insideOther = others.some((o) => (x - o.x) ** 2 + (y - o.y) ** 2 < o.r * o.r);
-      if (insideOther) continue;
-      if (mode === 'union' ? !inRect(x, y) : inRect(x, y)) pts.push(new THREE.Vector2(x, y));
+  const corners = [0, 2 * A, 2 * A + 2 * B, 4 * A + 2 * B];
+  const inside = (c: Circle, p: THREE.Vector2) => (p.x - c.x) ** 2 + (p.y - c.y) ** 2 < c.r * c.r;
+  const owner = (p: THREE.Vector2) => circles.find((c) => inside(c, p)) ?? null;
+  const inRect = (p: THREE.Vector2) => Math.abs(p.x) <= A + 1e-9 && Math.abs(p.y) <= B + 1e-9;
+  /** The perimeter position between s0 (state a) and s1 where the state changes. */
+  const edge = (s0: number, s1: number, c: Circle) => {
+    const a0 = inside(c, at(s0));
+    for (let i = 0; i < 40; i++) {
+      const m = (s0 + s1) / 2;
+      if (inside(c, at(m)) === a0) s0 = m;
+      else s1 = m;
+    }
+    return (s0 + s1) / 2;
+  };
+  const N = 6000;
+  const ds = P / N;
+  let s0 = 0;
+  while (owner(at(s0))) s0 += ds;
+  const out: THREE.Vector2[] = [at(s0)];
+  let cur: Circle | null = null;
+  let entered = 0;
+  for (let k = 1; k <= N; k++) {
+    const prev = s0 + (k - 1) * ds;
+    const s = s0 + k * ds;
+    const c = owner(at(s));
+    if (!cur) {
+      // a rectangle corner passed on the way
+      for (const cs of corners) {
+        for (const base of [0, P]) {
+          const cc = cs + base;
+          if (cc > prev && cc <= s && !owner(at(cc))) out.push(at(cc));
+        }
+      }
+      if (c) {
+        cur = c;
+        entered = edge(prev, s, c);
+      }
+    } else if (c !== cur) {
+      const left = edge(prev, s, cur);
+      const pIn = at(entered);
+      const pOut = at(left);
+      const a0 = Math.atan2(pIn.y - cur.y, pIn.x - cur.x);
+      const a1 = Math.atan2(pOut.y - cur.y, pOut.x - cur.x);
+      let ccw = a1 - a0;
+      while (ccw <= 0) ccw += Math.PI * 2;
+      const mid = (d: number) => new THREE.Vector2(cur!.x + Math.cos(a0 + d / 2) * cur!.r, cur!.y + Math.sin(a0 + d / 2) * cur!.r);
+      const wantOutside = mode === 'union';
+      const delta = inRect(mid(ccw)) !== wantOutside ? ccw : ccw - Math.PI * 2;
+      const n = Math.max(6, Math.ceil((Math.abs(delta) / (Math.PI * 2)) * perCircle * 4));
+      out.push(pIn);
+      for (let i = 1; i < n; i++) {
+        const ang = a0 + (delta * i) / n;
+        out.push(new THREE.Vector2(cur.x + Math.cos(ang) * cur.r, cur.y + Math.sin(ang) * cur.r));
+      }
+      out.push(pOut);
+      cur = c;
+      if (c) entered = edge(prev, s, c);
     }
   }
-  pts.sort((p, q) => Math.atan2(p.y, p.x) - Math.atan2(q.y, q.x));
-  // drop near-duplicates
-  return pts.filter((p, i) => i === 0 || p.distanceToSquared(pts[i - 1]) > 1e-10);
+  return out.filter((p, i) => i === 0 || p.distanceToSquared(out[i - 1]) > 1e-12);
 }
 
 /** Lay a shape drawn in sim coordinates flat on the table: (x, y) → (x, 0, −y). */
 function flat(geo: THREE.BufferGeometry): THREE.BufferGeometry {
   geo.rotateX(-Math.PI / 2);
   return geo;
+}
+
+/**
+ * One cushion as a solid, from its footprint on the bed (sim coordinates, the nose a→b first).
+ * Faces are built triangle by triangle, each turned to face the way it should (outwards for the
+ * sides, up for the top, towards the bed for the nose), so none is ever inside out; the top is
+ * triangulated with earcut because the ends curve round the pocket openings (concave).
+ */
+function cushionGeometry(foot: THREE.Vector2[], nx: number, ny: number, h: number): THREE.BufferGeometry {
+  const ch = Math.min(0.006, h * 0.3); // chamfer along the nose
+  // the footprint must run anticlockwise (seen from above) for the edge normals below
+  let pts = foot.slice();
+  let noseA = 0;
+  if (THREE.ShapeUtils.isClockWise(pts)) {
+    pts = pts.reverse();
+    noseA = pts.length - 2; // a→b became b→a at the end: nose is pts[n-2]→pts[n-1]... recompute below
+  }
+  // find the nose edge again: the pair (a, b) = foot[0], foot[1]
+  const ia = pts.indexOf(foot[0]);
+  const ib = pts.indexOf(foot[1]);
+  noseA = ia;
+  const top = (i: number) => (i === ia || i === ib ? new THREE.Vector2(pts[i].x + nx * ch, pts[i].y + ny * ch) : pts[i]);
+  const V = (p: THREE.Vector2, y: number) => new THREE.Vector3(p.x, y, -p.y);
+  const pos: number[] = [];
+  const tri = (p: THREE.Vector3, q: THREE.Vector3, r: THREE.Vector3, out: THREE.Vector3) => {
+    const n = new THREE.Vector3().subVectors(q, p).cross(new THREE.Vector3().subVectors(r, p));
+    if (n.dot(out) < 0) [q, r] = [r, q];
+    pos.push(p.x, p.y, p.z, q.x, q.y, q.z, r.x, r.y, r.z);
+  };
+  const quad = (p: THREE.Vector3, q: THREE.Vector3, r: THREE.Vector3, s: THREE.Vector3, out: THREE.Vector3) => {
+    tri(p, q, r, out);
+    tri(p, r, s, out);
+  };
+  const towardBed = new THREE.Vector3(-nx, 0, ny);
+  const n = pts.length;
+  for (let i = 0; i < n; i++) {
+    const j = (i + 1) % n;
+    const p = pts[i];
+    const q = pts[j];
+    const isNose = (i === ia && j === ib) || (i === ib && j === ia);
+    if (isNose) {
+      quad(V(p, 0), V(q, 0), V(q, h - ch), V(p, h - ch), towardBed);
+      quad(V(p, h - ch), V(q, h - ch), V(top(j), h), V(top(i), h), new THREE.Vector3(-nx, 1, ny));
+      continue;
+    }
+    // outward normal of an anticlockwise edge (sim) → three (x, 0, −y)
+    const out = new THREE.Vector3(q.y - p.y, 0, q.x - p.x);
+    quad(V(p, 0), V(q, 0), V(top(j), h), V(top(i), h), out);
+    // where a side meets the chamfered nose, close the small gap
+    if (i === ia || i === ib) tri(V(p, 0), V(p, h - ch), V(top(i), h), out);
+    if (j === ia || j === ib) tri(V(q, 0), V(q, h - ch), V(top(j), h), out);
+  }
+  const contour = pts.map((_, i) => top(i));
+  for (const [x, y, z] of THREE.ShapeUtils.triangulateShape(contour, [])) {
+    tri(V(contour[x], h), V(contour[y], h), V(contour[z], h), new THREE.Vector3(0, 1, 0));
+  }
+  void noseA;
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.computeVertexNormals();
+  return geo;
+}
+
+/** Where a ray from p along unit d first meets the circle (or null). */
+function rayCircle(p: THREE.Vector2, d: THREE.Vector2, c: Circle): THREE.Vector2 | null {
+  const fx = p.x - c.x;
+  const fy = p.y - c.y;
+  const b = fx * d.x + fy * d.y;
+  const cc = fx * fx + fy * fy - c.r * c.r;
+  const disc = b * b - cc;
+  if (disc < 0) return null;
+  const t = -b - Math.sqrt(disc);
+  if (t < 0) return null;
+  return new THREE.Vector2(p.x + d.x * t, p.y + d.y * t);
 }
 
 export interface TableModel {
@@ -107,8 +224,11 @@ export function buildTable(t: TableSpec): TableModel {
   slate.receiveShadow = true;
   group.add(slate);
 
+  // the openings cut in the rail around each pocket (cushions end where they begin)
+  const holes: Circle[] = t.pockets.map((p) => ({ x: p.x, y: p.y, r: p.kind === 'corner' ? t.cornerMouth * 0.82 : t.middleMouth * 0.68 }));
+
   // ---------------------------------------------------------------- cushions (from the physics segments)
-  const cushionMat = keep(new THREE.MeshStandardMaterial({ color: new THREE.Color(t.cloth).multiplyScalar(0.92), map: clothTex, roughness: 0.9 }));
+  const cushionMat = keep(new THREE.MeshStandardMaterial({ color: new THREE.Color(t.cloth).multiplyScalar(0.8), roughness: 0.9 }));
   const noseH = 1.3 * R;
   for (let i = 0; i < t.cushions.length; i += 3) {
     const main = t.cushions[i];
@@ -128,10 +248,44 @@ export function buildTable(t: TableSpec): TableModel {
       const k = cw / Math.max(0.2, along);
       return new THREE.Vector2(j.ax + (dx / len) * k, j.ay + (dy / len) * k);
     };
-    const pts = [new THREE.Vector2(main.ax, main.ay), new THREE.Vector2(main.bx, main.by), back(jB), back(jA)];
-    // the cushion's nose is rounded: build it as an extruded footprint with a small bevel
-    const shape = new THREE.Shape(pts);
-    const geo = keep(flat(new THREE.ExtrudeGeometry(shape, { depth: noseH, bevelEnabled: true, bevelThickness: 0.004, bevelSize: 0.003, bevelSegments: 3 })));
+    const a = new THREE.Vector2(main.ax, main.ay);
+    const b = new THREE.Vector2(main.bx, main.by);
+    const mid = new THREE.Vector2((a.x + b.x) / 2, (a.y + b.y) / 2);
+    // One end of the cushion: down its jaw until the pocket opening, then round the opening's
+    // edge to the back of the cushion. (The physics jaw carries on inside the opening, hidden
+    // under the pocket's lip, as a real jaw does under the leather.)
+    const end = (tip: THREE.Vector2, j: typeof jA): THREE.Vector2[] => {
+      const hole = holes.reduce((best, h) => (Math.hypot(h.x - tip.x, h.y - tip.y) < Math.hypot(best.x - tip.x, best.y - tip.y) ? h : best));
+      const jd = new THREE.Vector2(j.bx - j.ax, j.by - j.ay).normalize();
+      const inside = Math.hypot(tip.x - hole.x, tip.y - hole.y) <= hole.r;
+      const J = inside ? tip.clone() : rayCircle(tip, jd, hole);
+      // the back line: through a + n·cw, along the run
+      const bl = new THREE.Vector2(a.x + nx * cw, a.y + ny * cw);
+      const run = new THREE.Vector2(b.x - a.x, b.y - a.y).normalize();
+      const fx = bl.x - hole.x;
+      const fy = bl.y - hole.y;
+      const bb = fx * run.x + fy * run.y;
+      const disc = bb * bb - (fx * fx + fy * fy - hole.r * hole.r);
+      if (!J || disc < 0) return [back(j)];
+      const roots = [-bb - Math.sqrt(disc), -bb + Math.sqrt(disc)].map((t) => new THREE.Vector2(bl.x + run.x * t, bl.y + run.y * t));
+      const K = roots.sort((p, q) => p.distanceTo(mid) - q.distanceTo(mid))[0];
+      // arc J → K the short way round
+      let a0 = Math.atan2(J.y - hole.y, J.x - hole.x);
+      let a1 = Math.atan2(K.y - hole.y, K.x - hole.x);
+      let da = a1 - a0;
+      while (da > Math.PI) da -= Math.PI * 2;
+      while (da < -Math.PI) da += Math.PI * 2;
+      const out: THREE.Vector2[] = inside ? [] : [J];
+      for (let k = 1; k <= 8; k++) {
+        const ang = a0 + (da * k) / 8;
+        out.push(new THREE.Vector2(hole.x + Math.cos(ang) * hole.r, hole.y + Math.sin(ang) * hole.r));
+      }
+      void a1;
+      return out;
+    };
+    const endB = end(b, jB);
+    const endA = end(a, jA).reverse();
+    const geo = keep(cushionGeometry([a, b, ...endB, ...endA], nx, ny, noseH));
     const mesh = new THREE.Mesh(geo, cushionMat);
     mesh.castShadow = true;
     mesh.receiveShadow = true;
@@ -143,12 +297,12 @@ export function buildTable(t: TableSpec): TableModel {
   woodTex.repeat.set(4, 1);
   const woodMat = keep(new THREE.MeshStandardMaterial({ map: woodTex, roughness: 0.38, metalness: 0.05, color: '#ffffff' }));
   const railH = noseH + 0.006;
-  const holes: Circle[] = t.pockets.map((p) => ({ x: p.x, y: p.y, r: p.kind === 'corner' ? t.cornerMouth * 0.82 : t.middleMouth * 0.68 }));
   const railShape = new THREE.Shape([new THREE.Vector2(-OA, -OB), new THREE.Vector2(OA, -OB), new THREE.Vector2(OA, OB), new THREE.Vector2(-OA, OB)]);
   railShape.holes.push(new THREE.Path(outline(A - 0.001, B - 0.001, holes, 'union')));
   // deep enough to be the table's sides too (down to the apron)
   const railDepth = railH + 0.17;
-  const railGeo = keep(flat(new THREE.ExtrudeGeometry(railShape, { depth: railDepth, bevelEnabled: true, bevelThickness: 0.006, bevelSize: 0.006, bevelSegments: 3 })));
+  // no bevel: it folds over where the curved pocket openings meet the straight inner edge
+  const railGeo = keep(flat(new THREE.ExtrudeGeometry(railShape, { depth: railDepth, bevelEnabled: false, curveSegments: 24 })));
   // planar UVs for the grain
   const rp = railGeo.attributes.position;
   const ruv = new Float32Array(rp.count * 2);
@@ -169,21 +323,39 @@ export function buildTable(t: TableSpec): TableModel {
   const metalMat = keep(new THREE.MeshStandardMaterial({ color: t.id === 'snooker' ? '#b8913f' : '#9aa0a6', roughness: 0.25, metalness: 0.9 }));
   for (const [i, p] of t.pockets.entries()) {
     const r = holes[i].r;
-    const well = new THREE.Mesh(keep(new THREE.CylinderGeometry(r * 0.97, r * 0.8, 0.16, 32, 1, true)), wellMat);
+    const well = new THREE.Mesh(keep(new THREE.CylinderGeometry(r * 0.985, r * 0.8, 0.16, 40, 1, true)), wellMat);
     well.position.set(p.x, -0.08, -p.y);
+    // black leather lining the opening where it's cut into the rail (only that arc: towards the
+    // bed the opening is open, or it would stand in front of the pocket like a bucket)
+    let start = -1;
+    let len = 0;
+    const N = 180;
+    const inRail = (k: number) => {
+      const a = (k / N) * Math.PI * 2;
+      const x = p.x + Math.cos(a) * r;
+      const y = p.y + Math.sin(a) * r;
+      return Math.abs(x) > A - 0.002 || Math.abs(y) > B - 0.002;
+    };
+    for (let k = 0; k < N; k++) {
+      if (inRail(k) && !inRail((k + N - 1) % N)) start = k;
+    }
+    if (start >= 0) {
+      while (len < N && inRail((start + len) % N)) len++;
+      const phi = (start / N) * Math.PI * 2;
+      const liner = new THREE.Mesh(keep(new THREE.CylinderGeometry(r * 0.99, r * 0.99, railH, 40, 1, true, phi + Math.PI / 2, (len / N) * Math.PI * 2)), wellMat);
+      liner.position.set(p.x, railH / 2, -p.y);
+      group.add(liner);
+      // a flat rim on the rail round the same arc (brass/chrome on corners, rubber on middles)
+      const rim = new THREE.Mesh(keep(new THREE.RingGeometry(r * 0.99, r + 0.011, 40, 1, phi, (len / N) * Math.PI * 2)), p.kind === 'corner' ? metalMat : lipMat);
+      rim.rotation.x = -Math.PI / 2;
+      rim.position.set(p.x, railH + 0.0008, -p.y);
+      group.add(rim);
+    }
     group.add(well);
     const floor = new THREE.Mesh(keep(new THREE.CircleGeometry(r * 0.8, 32)), wellMat);
     floor.rotation.x = -Math.PI / 2;
     floor.position.set(p.x, -0.15, -p.y);
     group.add(floor);
-    // a lip around the opening on the rail top (the half facing out of the table)
-    const lip = new THREE.Mesh(keep(new THREE.TorusGeometry(r + 0.004, 0.009, 10, 40, Math.PI * (p.kind === 'corner' ? 1.25 : 1))), p.kind === 'corner' ? metalMat : lipMat);
-    lip.rotation.x = -Math.PI / 2;
-    const out = Math.atan2(p.y, p.x);
-    lip.rotation.z = p.kind === 'corner' ? out - Math.PI * 0.625 : out - Math.PI / 2;
-    lip.position.set(p.x, railH - 0.002, -p.y);
-    lip.castShadow = true;
-    group.add(lip);
   }
 
   // ---------------------------------------------------------------- sights (diamonds) on the rail

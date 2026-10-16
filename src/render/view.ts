@@ -8,8 +8,10 @@ import type { Rules } from '../sim/rules/types.ts';
 import type { TableSpec } from '../sim/tables.ts';
 import { ballTexture } from './textures.ts';
 import { buildTable, type TableModel } from './table.ts';
+import { buildRoom, themeFor, type RoomModel } from './room.ts';
 
-export type CameraMode = 'aim' | 'top' | 'orbit';
+/** aim: behind the cue ball · sight: down the cue, eye on the shot line · top: overhead · orbit: the menu. */
+export type CameraMode = 'aim' | 'sight' | 'top' | 'orbit';
 
 export interface AimView {
   dx: number;
@@ -19,7 +21,8 @@ export interface AimView {
   height: number;
 }
 
-export type GuideLength = 'full' | 'short' | 'off';
+export type { GuideSetting as GuideLength } from '../net/protocol.ts';
+import type { GuideSetting as GuideLength } from '../net/protocol.ts';
 
 const UP = new THREE.Vector3(0, 1, 0);
 const tmpV = new THREE.Vector3();
@@ -92,8 +95,9 @@ export class TableView {
     c.width = c.height = 64;
     const g = c.getContext('2d')!;
     const grad = g.createRadialGradient(32, 32, 0, 32, 32, 32);
-    grad.addColorStop(0, 'rgba(0,0,0,0.75)');
-    grad.addColorStop(0.45, 'rgba(0,0,0,0.35)');
+    grad.addColorStop(0, 'rgba(0,0,0,0.9)');
+    grad.addColorStop(0.3, 'rgba(0,0,0,0.7)');
+    grad.addColorStop(0.6, 'rgba(0,0,0,0.25)');
     grad.addColorStop(1, 'rgba(0,0,0,0)');
     g.fillStyle = grad;
     g.fillRect(0, 0, 64, 64);
@@ -148,18 +152,12 @@ export class TableView {
     this.scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
     this.scene.environmentIntensity = 0.32;
     this.scene.background = new THREE.Color('#0c0a09');
-    this.scene.fog = new THREE.Fog('#0c0a09', 6, 16);
+    this.scene.fog = new THREE.Fog('#0c0a09', 9, 24);
 
-    // floor
-    const floor = new THREE.Mesh(new THREE.PlaneGeometry(40, 40), new THREE.MeshStandardMaterial({ color: '#2a1a14', roughness: 0.95 }));
-    floor.rotation.x = -Math.PI / 2;
-    floor.position.y = -0.86;
-    floor.receiveShadow = true;
-    this.scene.add(floor);
     this.scene.add(new THREE.HemisphereLight('#fff4e0', '#1a120c', 0.35));
     this.scene.add(this.lamps);
 
-    this.shadowMat = new THREE.MeshBasicMaterial({ map: this.shadowTex, transparent: true, depthWrite: false, opacity: 0.6 });
+    this.shadowMat = new THREE.MeshBasicMaterial({ map: this.shadowTex, transparent: true, depthWrite: false, opacity: 0.7 });
     this.cue.visible = false;
     this.scene.add(this.cue);
     this.ghost = new THREE.Mesh(new THREE.SphereGeometry(1, 24, 16), new THREE.MeshBasicMaterial({ color: '#ffffff', transparent: true, opacity: 0.22, depthWrite: false }));
@@ -211,16 +209,18 @@ export class TableView {
     this.balls = [];
     this.ballMats = [];
     rules.looks.forEach((look, id) => {
-      const mat = new THREE.MeshPhysicalMaterial({ map: ballTexture(look, id === 0), roughness: 0.16, metalness: 0, clearcoat: 1, clearcoatRoughness: 0.06 });
+      const mat = new THREE.MeshPhysicalMaterial({ map: ballTexture(look), roughness: 0.16, metalness: 0, clearcoat: 1, clearcoatRoughness: 0.06 });
       const mesh = new THREE.Mesh(this.ballGeo!, mat);
-      mesh.castShadow = true;
+      // no shadow-map shadow: lit from almost straight above it hides under the ball and only
+      // a ring shows round the edge. The soft contact shadow below does the job instead.
+      mesh.castShadow = false;
       // numbers face up to start with, each ball turned a different way
       mesh.quaternion.setFromEuler(new THREE.Euler(-Math.PI / 2, (id * 2.399) % (Math.PI * 2), 0, 'YXZ'));
       this.scene.add(mesh);
       this.balls.push(mesh);
       this.ballMats.push(mat);
       // a soft contact shadow that follows the ball (the lamps' shadows alone look like rings)
-      const sh = new THREE.Mesh(new THREE.PlaneGeometry(R * 2.6, R * 2.6), this.shadowMat);
+      const sh = new THREE.Mesh(new THREE.PlaneGeometry(R * 3.2, R * 3.2), this.shadowMat);
       sh.rotation.x = -Math.PI / 2;
       sh.renderOrder = 1;
       this.scene.add(sh);
@@ -229,18 +229,34 @@ export class TableView {
     this.ghost.scale.setScalar(R);
     this.ring.scale.setScalar(R);
     this.buildLamps(rules.table);
+    const theme = themeFor(rules.id);
+    if (this.room?.theme !== theme) {
+      if (this.room) {
+        this.scene.remove(this.room.group);
+        this.room.dispose();
+      }
+      this.room = buildRoom(theme, rules.table);
+      this.scene.add(this.room.group);
+    }
   }
+
+  private room: RoomModel | null = null;
 
   private buildLamps(t: TableSpec): void {
     for (const c of [...this.lamps.children]) {
       this.lamps.remove(c);
       if (c instanceof THREE.SpotLight) c.dispose();
+      c.traverse((o) => {
+        if (o instanceof THREE.Mesh) {
+          o.geometry.dispose();
+          (o.material as THREE.Material).dispose();
+        }
+      });
     }
+    this.fittings = [];
     const n: number = t.id === 'snooker' ? 3 : 2;
     const h = 1.15;
     const span = t.length * 0.62;
-    const shade = new THREE.MeshStandardMaterial({ color: t.id === 'snooker' ? '#173d27' : '#3b1a12', roughness: 0.6, metalness: 0.3, side: THREE.DoubleSide });
-    const glow = new THREE.MeshBasicMaterial({ color: '#fff6e2' });
     for (let i = 0; i < n; i++) {
       const x = n === 1 ? 0 : -span / 2 + (span * i) / (n - 1);
       const spot = new THREE.SpotLight('#fff3dd', t.id === 'snooker' ? 7.5 : 6, 4, 0.95, 0.7, 1.6);
@@ -253,21 +269,84 @@ export class TableView {
       spot.shadow.camera.near = 0.3;
       spot.shadow.camera.far = 3;
       this.lamps.add(spot, spot.target);
+      // the fitting (shade, glowing underside, cord): its own materials so each lamp can fade
+      // on its own when it hangs in front of the table (see fadeLamps)
+      const fit = new THREE.Group();
+      fit.position.set(x, h, 0);
+      const shade = new THREE.MeshStandardMaterial({ color: t.id === 'snooker' ? '#173d27' : '#3b1a12', roughness: 0.6, metalness: 0.3, side: THREE.DoubleSide, transparent: true });
+      const glow = new THREE.MeshBasicMaterial({ color: '#fff6e2', transparent: true });
+      const cordMat = new THREE.MeshBasicMaterial({ color: '#111', transparent: true });
       const cone = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.24, 0.16, 32, 1, true), shade);
-      cone.position.set(x, h + 0.06, 0);
-      cone.userData.fitting = true;
-      this.lamps.add(cone);
+      cone.position.y = 0.06;
       const bulb = new THREE.Mesh(new THREE.CircleGeometry(0.2, 32), glow);
       bulb.rotation.x = Math.PI / 2;
-      bulb.position.set(x, h - 0.015, 0);
-      bulb.userData.fitting = true;
-      this.lamps.add(bulb);
-      const cord = new THREE.Mesh(new THREE.CylinderGeometry(0.004, 0.004, 1.5), new THREE.MeshBasicMaterial({ color: '#111' }));
-      cord.position.set(x, h + 0.9, 0);
-      cord.userData.fitting = true;
-      this.lamps.add(cord);
+      bulb.position.y = -0.015;
+      const cord = new THREE.Mesh(new THREE.CylinderGeometry(0.004, 0.004, 1.5), cordMat);
+      cord.position.y = 0.9;
+      fit.add(cone, bulb, cord);
+      this.lamps.add(fit);
+      this.fittings.push({ group: fit, mats: [shade, glow, cordMat], opacity: 1 });
     }
   }
+
+  private fittings: { group: THREE.Group; mats: THREE.Material[]; opacity: number }[] = [];
+
+  /**
+   * Fade any lamp whose shade covers part of the table on screen (the snooker lamps hang right
+   * in the line of sight from the cue view and overhead). A lamp off to the side, or above the
+   * far cushion, stays solid.
+   */
+  private fadeLamps(dt: number): void {
+    const spec = this.spec;
+    if (!spec || !this.table) return;
+    const cam = this.camera;
+    cam.updateMatrixWorld();
+    const A = this.table.outerA;
+    const B = this.table.outerB;
+    const quad = [v3(-A, -B), v3(A, -B), v3(A, B), v3(-A, B)].map((p) => p.project(cam));
+    // the table's outline on screen (corners behind the camera: treat the table as covering)
+    const behind = quad.some((p) => p.z > 1);
+    const inside = (x: number, y: number) => {
+      if (behind) return true;
+      let sign = 0;
+      for (let i = 0; i < 4; i++) {
+        const a = quad[i];
+        const b = quad[(i + 1) % 4];
+        const c = (b.x - a.x) * (y - a.y) - (b.y - a.y) * (x - a.x);
+        if (c !== 0) {
+          if (sign && Math.sign(c) !== sign) return false;
+          sign = Math.sign(c);
+        }
+      }
+      return true;
+    };
+    const right = new THREE.Vector3().setFromMatrixColumn(cam.matrixWorld, 0);
+    const up = new THREE.Vector3().setFromMatrixColumn(cam.matrixWorld, 1);
+    const k = 1 - Math.exp(-dt * 8);
+    for (const f of this.fittings) {
+      const c = f.group.position;
+      let covers = false;
+      // sample the shade's outline and centre
+      for (const [dx, dy] of [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1], [0.7, 0.7], [-0.7, 0.7], [0.7, -0.7], [-0.7, -0.7]]) {
+        const p = c.clone().addScaledVector(right, dx * 0.24).addScaledVector(up, dy * 0.12);
+        const s = p.project(cam);
+        if (s.z < -1 || s.z > 1) continue;
+        if (s.x < -1.05 || s.x > 1.05 || s.y < -1.05 || s.y > 1.05) continue;
+        if (inside(s.x, s.y)) {
+          covers = true;
+          break;
+        }
+      }
+      const target = covers ? 0 : 1;
+      f.opacity += (target - f.opacity) * k;
+      f.group.visible = f.opacity > 0.02;
+      for (const m of f.mats) {
+        m.opacity = f.opacity;
+        m.depthWrite = f.opacity > 0.98;
+      }
+    }
+  }
+
 
   /** Show the balls exactly as given (after a shot is judged, a respot, a new frame). */
   setBalls(balls: readonly Ball[]): void {
@@ -411,7 +490,23 @@ export class TableView {
       // fades as the ball drops into a pocket
       const h = b.position.y - R;
       sh.visible = b.visible && h > -R;
-      sh.position.set(b.position.x, 0.0008, b.position.z);
+      // falls a little away from the nearest lamp, and stretches that way
+      let lx = 0;
+      let best = Infinity;
+      for (const f of this.fittings) {
+        const d = Math.abs(f.group.position.x - b.position.x);
+        if (d < best) {
+          best = d;
+          lx = f.group.position.x;
+        }
+      }
+      const away = new THREE.Vector2(b.position.x - lx, b.position.z);
+      const dist = away.length();
+      const off = Math.min(R * 0.45, dist * 0.18);
+      if (dist > 1e-6) away.multiplyScalar(1 / dist);
+      sh.position.set(b.position.x + away.x * off, 0.0008, b.position.z + away.y * off);
+      sh.rotation.z = Math.atan2(-away.y, away.x);
+      sh.scale.set(1 + off / R * 0.5, 1, 1);
     }
   }
 
@@ -452,12 +547,68 @@ export class TableView {
       .addScaledVector(right, a.side * MAX_TIP_OFFSET * R)
       .addScaledVector(UP, a.height * MAX_TIP_OFFSET * R)
       .addScaledVector(d, -Math.sqrt(Math.max(0, R * R - (a.side * MAX_TIP_OFFSET * R) ** 2 - (a.height * MAX_TIP_OFFSET * R) ** 2)));
-    // a slightly raised butt, as you'd hold it over the rail
-    const elev = 0.09;
+    // raise the butt as much as it takes to clear the balls behind the cue ball and the rail
+    const want = this.cueElevation(contact, d, back);
+    this.cueElev += (want - this.cueElev) * (1 - Math.exp(-dt * 14));
+    const elev = this.cueElev;
     const dirUp = d.clone().multiplyScalar(Math.cos(elev)).addScaledVector(UP, -Math.sin(elev));
     this.cue.position.copy(contact).addScaledVector(dirUp, -back);
     const m = new THREE.Matrix4().lookAt(new THREE.Vector3(), dirUp.clone().negate(), UP);
     this.cue.quaternion.setFromRotationMatrix(m);
+  }
+
+  private cueElev = 0.09;
+
+  /**
+   * The lowest cue angle that clears everything behind the cue ball: other balls near the cue's
+   * line, and the cushion and rail. A real player jacks up the butt the same way.
+   */
+  private cueElevation(contact: THREE.Vector3, d: THREE.Vector3, back: number): number {
+    const spec = this.spec!;
+    const R = spec.ballRadius;
+    let elev = 0.09;
+    const tipR = 0.0058;
+    const taper = (0.0146 - tipR) / 1.47;
+    const margin = 0.004;
+    // In the vertical plane of the cue, keep the cue's axis (a line rising from the contact
+    // point) at least `rho` from a point `t` back and `h` up: the angle must be at least
+    // atan2(h, t) + asin(rho / distance).
+    const clear = (t: number, h: number, rho: number) => {
+      if (t <= 0) return;
+      const dist = Math.hypot(t, h);
+      if (dist <= rho) return void (elev = Math.max(elev, 1.25));
+      elev = Math.max(elev, Math.atan2(h, t) + Math.asin(rho / dist));
+    };
+    const cueR = (t: number) => tipR + Math.max(0, t - back) * taper;
+    for (let i = 1; i < this.balls.length; i++) {
+      const m = this.balls[i];
+      if (!m.visible) continue;
+      const ox = m.position.x - contact.x;
+      const oz = m.position.z - contact.z;
+      const t = -(ox * d.x + oz * d.z); // distance behind the contact point
+      if (t <= 0 || t > 1.6) continue;
+      const lat = Math.abs(ox * d.z - oz * d.x);
+      const reach = R + cueR(t) + margin;
+      if (lat >= reach) continue;
+      clear(t, m.position.y - contact.y, Math.sqrt(reach * reach - lat * lat));
+    }
+    // the cushion nose and the rail's outer edge, where the line backwards leaves the bed
+    const L = spec.length / 2;
+    const W = spec.width / 2;
+    const bx = -d.x;
+    const bz = -d.z;
+    let tEdge = Infinity;
+    if (bx > 1e-6) tEdge = Math.min(tEdge, (L - contact.x) / bx);
+    if (bx < -1e-6) tEdge = Math.min(tEdge, (-L - contact.x) / bx);
+    if (bz > 1e-6) tEdge = Math.min(tEdge, (W - contact.z) / bz);
+    if (bz < -1e-6) tEdge = Math.min(tEdge, (-W - contact.z) / bz);
+    if (tEdge < Infinity) {
+      const railTop = 1.3 * R + 0.006 - contact.y;
+      const out = (spec.cushionWidth + spec.railWidth) / Math.max(0.3, Math.max(Math.abs(bx), Math.abs(bz)));
+      clear(tEdge, railTop, cueR(tEdge) + margin);
+      clear(tEdge + out, railTop, cueR(tEdge + out) + margin);
+    }
+    return Math.min(1.25, elev);
   }
 
   private cueDir(): THREE.Vector3 {
@@ -539,7 +690,7 @@ export class TableView {
     const OB = this.table.outerB;
     const tan = Math.tan((this.camera.fov * Math.PI) / 360);
     const aspect = this.camera.aspect;
-    if (this.mode === 'top' || (this.mode === 'aim' && this.playing && this.topDuringShot)) {
+    if (this.mode === 'top' || (this.mode !== 'orbit' && this.playing && this.topDuringShot)) {
       const portrait = aspect < 1;
       const long = OA * 1.06;
       const short = OB * 1.12;
@@ -554,7 +705,7 @@ export class TableView {
         up,
       };
     }
-    // aim: behind the cue ball, looking along the shot
+    // aim / sight: behind the cue ball, looking along the shot
     const cb = this.placing ? v3(this.placing.x, this.placing.y, spec.ballRadius) : (this.balls[0]?.position.clone() ?? new THREE.Vector3());
     const d = this.cueDir();
     if (this.playing) {
@@ -563,6 +714,13 @@ export class TableView {
       const pos = cb.clone().multiplyScalar(0.4).addScaledVector(d, -back);
       pos.y = spec.length * 0.48;
       return { pos, look: cb.clone().multiplyScalar(0.35).addScaledVector(d, spec.length * 0.15), up };
+    }
+    if (this.mode === 'sight') {
+      // the eye just above the cue's own line, looking down it through the cue ball
+      const back = 0.42;
+      const eye = cb.clone().addScaledVector(d, -back * Math.cos(this.cueElev));
+      eye.y = cb.y + back * Math.sin(this.cueElev) + 0.035;
+      return { pos: eye, look: cb.clone().addScaledVector(d, 1.6).setY(spec.ballRadius * 0.5), up };
     }
     const scale = (spec.id === 'snooker' ? 1.15 : 0.9) * this.zoom;
     const dist = (0.55 + this.pitch * 0.5) * scale;
@@ -575,17 +733,16 @@ export class TableView {
 
   private updateCamera(dt: number): void {
     if (this.mode === 'orbit') this.orbitAngle += dt * 0.06;
-    // the lamp shades hang between an overhead camera and the table
-    const overhead = this.mode === 'top' || (this.mode === 'aim' && !!this.playing && this.topDuringShot);
-    for (const c of this.lamps.children) if (c.userData.fitting) c.visible = !overhead;
+
     const want = this.desiredCamera();
-    const k = 1 - Math.exp(-dt * (this.mode === 'aim' && !this.playing ? 9 : 3.2));
+    const k = 1 - Math.exp(-dt * ((this.mode === 'aim' || this.mode === 'sight') && !this.playing ? 9 : 3.2));
     this.camPos.lerp(want.pos, k);
     this.camLook.lerp(want.look, k);
     this.camUp.lerp(want.up, k).normalize();
     this.camera.position.copy(this.camPos);
     this.camera.up.copy(this.camUp);
     this.camera.lookAt(this.camLook);
+    this.fadeLamps(dt);
   }
 
   /** Snap the camera to where it wants to be (no glide). */

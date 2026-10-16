@@ -50,7 +50,7 @@ class Client {
 async function room(n: number) {
   const host = new Client();
   await host.open();
-  host.send({ t: 'create', name: 'Host', settings: { variant: 'nine', raceTo: 1 } });
+  host.send({ t: 'create', name: 'Host', settings: { variant: 'nine', raceTo: 1, guide: 'short' } });
   const { code } = await host.wait('welcome');
   const others: Client[] = [];
   for (let i = 1; i < n; i++) {
@@ -60,7 +60,8 @@ async function room(n: number) {
     await c.wait('welcome');
     others.push(c);
   }
-  await host.wait('room', (m) => m.room.members.length === n);
+  const r = await host.wait('room', (m) => m.room.members.length === n);
+  expect(r.room.settings.guide).toBe('short'); // the host's choice reaches everyone
   return { host, others, code, all: [host, ...others] };
 }
 
@@ -70,6 +71,16 @@ function anyPlace(m: Match) {
 }
 
 describe('server', () => {
+  it('only the host changes the aim guide, and junk falls back to full', async () => {
+    const { host, others, all } = await room(2);
+    others[0].send({ t: 'settings', settings: { variant: 'nine', raceTo: 1, guide: 'off' } });
+    host.send({ t: 'settings', settings: { variant: 'nine', raceTo: 1, guide: 'off' } });
+    expect((await others[0].wait('room', (m) => m.room.settings.guide === 'off')).room.settings.guide).toBe('off');
+    host.send({ t: 'settings', settings: { variant: 'nine', raceTo: 1, guide: 'cheat' as any } });
+    expect((await others[0].wait('room', (m) => m.room.settings.guide === 'full')).room.settings.guide).toBe('full');
+    for (const c of all) c.ws.close();
+  });
+
   it('two players: the server referees a shot and both see it', async () => {
     const { host, others } = await room(2);
     host.send({ t: 'start' });
@@ -116,7 +127,7 @@ describe('server', () => {
   it('a reload reclaims the seat with the token', async () => {
     const host = new Client();
     await host.open();
-    host.send({ t: 'create', name: 'Ann', settings: { variant: 'uk8', raceTo: 1 } });
+    host.send({ t: 'create', name: 'Ann', settings: { variant: 'uk8', raceTo: 1, guide: 'full' } });
     const w = await host.wait('welcome');
     host.ws.close();
     const again = new Client();

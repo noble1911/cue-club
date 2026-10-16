@@ -24,6 +24,11 @@ the Node server runs the TypeScript directly. See README.md for the file map.
 - Physics feel (friction, restitution, pocket sizes, max speed) lives in `tables.ts`. Retune with
   `npm test` (pot-every-pocket, screw/follow/stun, side) and an AI-vs-AI frame
   (`chooseShot` in a loop) to check frames still finish.
+- Table meshes are built from the physics geometry (`src/render/table.ts`). Outlines with pocket
+  openings are walked round the rectangle (`outline()`), never sorted by angle (that zig-zags at the
+  corners); cushions are built face by face, never extruded with a bevel (it folds at the jaws).
+- Balls don't cast shadow-map shadows (lit from straight above, only a ring shows): each has a soft
+  contact shadow instead. Lamp fittings fade out whenever they cover the table on screen.
 - three r186: `PCFSoftShadowMap` is gone (use `PCFShadowMap`); judge the look with the real GPU
   (`E2E_GPU=metal`, the default on a Mac): SwiftShader can't sample the shadow maps.
 

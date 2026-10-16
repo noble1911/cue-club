@@ -11,10 +11,16 @@ import type { Shot } from '../sim/physics.ts';
 import type { VariantId } from '../sim/rules/types.ts';
 import type { Bracket } from './tournament.ts';
 
+/** How much of the aim line players see. */
+export type GuideSetting = 'full' | 'short' | 'off';
+export const GUIDE_SETTINGS: GuideSetting[] = ['full', 'short', 'off'];
+
 export interface RoomSettings {
   variant: VariantId;
   /** First to this many frames wins each match. */
   raceTo: number;
+  /** The aim guide everyone in the room plays with (the host decides). */
+  guide: GuideSetting;
 }
 
 export interface MemberView {

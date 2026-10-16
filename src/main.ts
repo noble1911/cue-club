@@ -9,7 +9,7 @@ import { Rng } from './sim/rng.ts';
 import type { AiLevel } from './sim/ai.ts';
 import type { VariantId } from './sim/rules/types.ts';
 import { Connection } from './net/client.ts';
-import { MAX_PLAYERS, type RoomView, type ServerMsg } from './net/protocol.ts';
+import { GUIDE_SETTINGS, MAX_PLAYERS, type GuideSetting, type RoomView, type ServerMsg } from './net/protocol.ts';
 import { roundName } from './net/tournament.ts';
 import { el, esc, session, store } from './ui/dom.ts';
 import { sound } from './audio.ts';
@@ -19,6 +19,7 @@ const ui = document.getElementById('ui')!;
 const view = new TableView(stage);
 
 type Mode = 'ai' | 'local' | 'online';
+const GUIDE_NAMES: Record<GuideSetting, string> = { full: 'Full', short: 'Short', off: 'Off' };
 const prefs = {
   variant: (store.get('variant') as VariantId) ?? 'uk8',
   mode: (store.get('mode') as Mode) ?? 'ai',
@@ -89,7 +90,7 @@ function home(): void {
           <li><b>Shoot:</b> drag the power bar down to pull the cue back and let go. Or ↑/↓ to set power, Space to shoot.</li>
           <li><b>Spin:</b> click the cue ball (bottom left) where you want to hit it: low for screw, high for follow, sides for side. W A S D too.</li>
           <li><b>Ball in hand:</b> drag the cue ball to place it, then aim.</li>
-          <li><b>V</b> switches cue view / overhead. Tap during a shot to speed it up.</li>
+          <li><b>V</b> (or the View button) switches camera: behind the cue, <b>sight</b> (looking down the cue, the way you'd aim without a guide), and overhead. Tap during a shot to speed it up.</li>
         </ul>
       </details>
     </div>`);
@@ -243,7 +244,8 @@ function goOnline(err: HTMLElement, how: { create?: boolean; code?: string; resu
   }
   // a fresh create/join replaces any old seat in this tab
   state.conn.remember(null);
-  if (how.create) state.conn.send({ t: 'create', name, settings: { variant: prefs.variant, raceTo: prefs.raceTo } });
+  const guide = (GUIDE_SETTINGS as string[]).includes(store.get('guide') ?? '') ? (store.get('guide') as GuideSetting) : 'full';
+  if (how.create) state.conn.send({ t: 'create', name, settings: { variant: prefs.variant, raceTo: prefs.raceTo, guide } });
   else state.conn.send({ t: 'join', code: how.code!, name });
   (state as any).name = name;
   void status;
@@ -312,6 +314,7 @@ function watch(s: OnlineState, mid: string): void {
     match: lm.match,
     seats,
     title,
+    guide: s.room.settings.guide,
     online: {
       shot: (shot, n) => s.conn.send({ t: 'shot', mid, n, shot }),
       aim: (aim) => s.conn.send({ t: 'aim', mid, aim }),
@@ -349,8 +352,9 @@ function lobby(s: OnlineState): void {
     const n = r.members.length;
     const settings = host
       ? `<label>Game <select class="s-var">${VARIANT_IDS.map((v) => `<option value="${v}" ${v === r.settings.variant ? 'selected' : ''}>${VARIANTS[v].name}</option>`).join('')}</select></label>
-         <label>Frames <select class="s-race">${[1, 2, 3, 5].map((k) => `<option value="${k}" ${k === r.settings.raceTo ? 'selected' : ''}>${k === 1 ? 'Single frame' : `First to ${k}`}</option>`).join('')}</select></label>`
-      : `<p>${VARIANTS[r.settings.variant].name} · ${r.settings.raceTo === 1 ? 'single frame' : `first to ${r.settings.raceTo} frames`}</p>`;
+         <label>Frames <select class="s-race">${[1, 2, 3, 5].map((k) => `<option value="${k}" ${k === r.settings.raceTo ? 'selected' : ''}>${k === 1 ? 'Single frame' : `First to ${k}`}</option>`).join('')}</select></label>
+         <label>Aim guide for everyone <select class="s-guide">${GUIDE_SETTINGS.map((g) => `<option value="${g}" ${g === r.settings.guide ? 'selected' : ''}>${GUIDE_NAMES[g]}</option>`).join('')}</select></label>`
+      : `<p>${VARIANTS[r.settings.variant].name} · ${r.settings.raceTo === 1 ? 'single frame' : `first to ${r.settings.raceTo} frames`} · aim guide: ${GUIDE_NAMES[r.settings.guide].toLowerCase()}</p>`;
     body = `
       <div class="code-big">${r.code}</div>
       <p class="muted">Share the code, or the link: <button class="copy linkish">${esc(link)}</button></p>
@@ -375,7 +379,7 @@ function lobby(s: OnlineState): void {
       .join('');
     const champ = r.champion ? `<div class="champ">🏆 ${name(r.champion)} ${b.rounds.length > 1 ? 'wins the tournament' : 'wins'}!</div>` : '';
     body = `
-      <p class="muted">Room ${r.code} · ${VARIANTS[r.settings.variant].name}${r.settings.raceTo > 1 ? ` · first to ${r.settings.raceTo}` : ''}</p>
+      <p class="muted">Room ${r.code} · ${VARIANTS[r.settings.variant].name}${r.settings.raceTo > 1 ? ` · first to ${r.settings.raceTo}` : ''} · aim guide: ${GUIDE_NAMES[r.settings.guide].toLowerCase()}</p>
       ${champ}
       <div class="bracket">${cols}</div>
       ${r.phase === 'done' && host ? '<button class="again primary">New tournament with this room</button>' : ''}`;
@@ -383,6 +387,7 @@ function lobby(s: OnlineState): void {
   const p = el(`<div class="menu lobby"><header><h1>Cue <span>Club</span></h1></header>${body}<button class="leave">Leave room</button></div>`);
   p.querySelector('.s-var')?.addEventListener('change', (e) => s.conn.send({ t: 'settings', settings: { ...r.settings, variant: (e.target as HTMLSelectElement).value as VariantId } }));
   p.querySelector('.s-race')?.addEventListener('change', (e) => s.conn.send({ t: 'settings', settings: { ...r.settings, raceTo: Number((e.target as HTMLSelectElement).value) } }));
+  p.querySelector('.s-guide')?.addEventListener('change', (e) => s.conn.send({ t: 'settings', settings: { ...r.settings, guide: (e.target as HTMLSelectElement).value as GuideSetting } }));
   p.querySelector('.start')?.addEventListener('click', () => s.conn.send({ t: 'start' }));
   p.querySelector('.again')?.addEventListener('click', () => {
     s.matches.clear();
@@ -438,4 +443,4 @@ if (resumeSeat && new URLSearchParams(location.search).get('room') === resumeSea
 }
 
 // for browser tests: what's on the table
-(window as any).__cue = { match: () => screen?.match ?? null, room: () => online?.room ?? null };
+(window as any).__cue = { match: () => screen?.match ?? null, room: () => online?.room ?? null, view };

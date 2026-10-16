@@ -11,7 +11,11 @@ Pool and snooker in the browser, in 3D (three.js / WebGL). Four games on three r
 
 Play **against the computer** (Easy → Pro), **two players on one screen**, or **online**: a room of
 two plays a match, three to eight play a **knockout tournament** (byes as needed), and anyone
-waiting can watch any table live. Matches can be a single frame or first to 2, 3 or 5.
+waiting can watch any table live. Matches can be a single frame or first to 2, 3 or 5. Online, the
+room's host sets the aim guide (full, short or off) for everyone.
+
+Each game has its own room: snooker in a panelled club, UK 8-ball in a pub, US 8-ball and 9-ball in
+a neon-lit pool hall.
 
 Live at **https://games.noblehaus.uk/cue-club/**.
 
@@ -23,6 +27,8 @@ Live at **https://games.noblehaus.uk/cue-club/**.
 - **Spin:** click the cue ball (bottom left) where you want to strike it: low = screw, high =
   follow, sides = side. W A S D nudge it.
 - **Ball in hand:** drag the cue ball to place it.
+- **Camera (V):** behind the cue, **sight** (your eye down the cue, the way you aim without a
+  guide; dragging is finer here), or overhead.
 - Tap during a shot to fast-forward.
 
 ## How it works
