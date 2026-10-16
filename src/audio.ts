@@ -167,22 +167,23 @@ class Sound {
 
   private build(): void {
     const vary = (base: number, seed: number, spread = 0.04) => base * (1 + noiseGen(seed)() * spread);
-    // Ball on ball: a muted "clack" more than a ring. Long-ringing high partials are what make
-    // an impact sound glassy or metallic, so the modes sit low (~0.6–3 kHz) and die in a few
-    // milliseconds, and most of the sound is the softened contact thud.
+    // Ball on ball: a crisp, hard "click". Two ways to get it wrong: high partials that ring on
+    // sound glassy/metallic; strong low partials (~0.6–1.2 kHz) sound hollow/wooden. A dense
+    // resin ball sits between: energy around 2–5 kHz but gone in a couple of milliseconds, with a
+    // sharp contact crack and almost no low body.
     this.buf.click = Array.from({ length: 8 }, (_, i) =>
       this.modal(
-        0.06,
+        0.04,
         [
-          { f: vary(1150, i * 3 + 1, 0.06), tau: 0.005, a: 0.9 },
-          { f: vary(1900, i * 3 + 2, 0.06), tau: 0.0045, a: 0.75 },
-          { f: vary(2900, i * 3 + 3, 0.06), tau: 0.003, a: 0.4 },
-          { f: vary(650, i * 3 + 4, 0.06), tau: 0.006, a: 0.35 },
+          { f: vary(2300, i * 3 + 1, 0.05), tau: 0.0028, a: 0.75 },
+          { f: vary(3500, i * 3 + 2, 0.05), tau: 0.0022, a: 0.55 },
+          { f: vary(4700, i * 3 + 3, 0.05), tau: 0.0016, a: 0.3 },
+          { f: vary(1600, i * 3 + 4, 0.05), tau: 0.002, a: 0.2 },
         ],
-        1.2,
-        0.0018,
+        1.4,
+        0.0011,
         100 + i,
-        0.35,
+        0.6,
       ),
     );
     // Cushion: the rubber and wooden rail, a dull thump with a soft knock on top.
@@ -337,7 +338,7 @@ class Sound {
       if (now - this.lastClick < 0.004) return;
       this.lastClick = now;
       // harder → louder and brighter (more of the high modes get through)
-      this.voice(this.pick('click'), 0.08 + Math.pow(v, 0.7) * 0.9, { pan, lowpass: 1200 + v * 5300, rate: 0.96 + Math.random() * 0.08 });
+      this.voice(this.pick('click'), 0.08 + Math.pow(v, 0.7) * 0.9, { pan, lowpass: 2400 + v * 6500, rate: 0.96 + Math.random() * 0.08 });
     } else if (e.type === 'cushion') {
       this.voice(this.pick('cushion'), 0.06 + Math.pow(v, 0.8) * 0.7, { pan, lowpass: 600 + v * 3000, rate: 0.92 + Math.random() * 0.16 });
     } else {
