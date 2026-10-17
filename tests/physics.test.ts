@@ -109,3 +109,28 @@ describe('throw', () => {
     expect(l.balls[1].y).toBeLessThan(0);
   });
 });
+
+describe('cut shots go where the ghost ball says', () => {
+  it('a perfectly aimed cut pots, and throw stays small (it used to miss every cut over 20°)', () => {
+    const R = SNOOKER.ballRadius;
+    const P = SNOOKER.pockets[0];
+    const u = { x: Math.SQRT1_2, y: Math.SQRT1_2 };
+    for (const cut of [15, 30, 45, 60]) {
+      for (const power of [0.4, 0.7]) {
+        const ob = { x: P.aim.x - u.x * 1.0, y: P.aim.y - u.y * 1.0 };
+        const gx = ob.x - u.x * 2 * R;
+        const gy = ob.y - u.y * 2 * R;
+        const a = Math.atan2(u.y, u.x) + (cut * Math.PI) / 180;
+        const r = simulate(SNOOKER, [ball(0, gx - Math.cos(a) * 0.6, gy - Math.sin(a) * 0.6), ball(1, ob.x, ob.y)], { dx: Math.cos(a), dy: Math.sin(a), power, side: 0, height: 0 }, { record: true });
+        expect(summarise(r.events).potted, `${cut}° at power ${power}`).toContain(1);
+        // the object ball's line just after contact, against the line to the pocket
+        const hit = r.events.find((e) => e.type === 'ball')!;
+        const i = Math.ceil((hit.t + 0.05) * 60);
+        const f0 = r.frames[i - 3];
+        const f1 = r.frames[i];
+        const err = Math.abs(Math.atan2(f1[6] - f0[6], f1[5] - f0[5]) - Math.atan2(u.y, u.x)) * (180 / Math.PI);
+        expect(err, `${cut}° at power ${power}: ${err.toFixed(2)}° off`).toBeLessThan(1.5);
+      }
+    }
+  });
+});

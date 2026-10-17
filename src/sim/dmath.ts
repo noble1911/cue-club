@@ -26,3 +26,23 @@ export function dcos(x: number): number {
 export function dhypot(x: number, y: number): number {
   return Math.sqrt(x * x + y * y);
 }
+
+/** e^x from + − × ÷ only: halve x into [−½, ½], Taylor series, square back up. */
+export function dexp(x: number): number {
+  if (x < -60) return 0;
+  if (x > 60) x = 60;
+  let k = 0;
+  let y = x;
+  while (y < -0.5 || y > 0.5) {
+    y /= 2;
+    k++;
+  }
+  let term = 1;
+  let sum = 1;
+  for (let n = 1; n < 18; n++) {
+    term = (term * y) / n;
+    sum += term;
+  }
+  for (let i = 0; i < k; i++) sum *= sum;
+  return sum;
+}

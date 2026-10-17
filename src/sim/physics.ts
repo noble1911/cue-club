@@ -11,6 +11,7 @@
 // server runs the same code to referee, the browsers to animate.
 
 import type { TableSpec } from './tables.ts';
+import { dexp } from './dmath.ts';
 
 export interface Ball {
   id: number;
@@ -53,6 +54,8 @@ export interface SimResult {
 }
 
 export const FRAME_DT = 1 / 60;
+/** How much of real ball-ball friction (throw) the game keeps; see ballBall. */
+export const THROW = 0.2;
 const DT = 1 / 1000;
 const G = 9.81;
 const MAX_TIME = 40;
@@ -159,12 +162,31 @@ function integrate(t: TableSpec, b: Ball, h: number): void {
   }
 }
 
-function ballBall(t: TableSpec, a: Ball, b: Ball, time: number, events: SimEvent[]): boolean {
+function ballBall(t: TableSpec, a: Ball, b: Ball, time: number, events: SimEvent[], h: number): boolean {
   const R2 = 2 * t.ballRadius;
-  const dx = b.x - a.x;
-  const dy = b.y - a.y;
-  const d2 = dx * dx + dy * dy;
+  let dx = b.x - a.x;
+  let dy = b.y - a.y;
+  let d2 = dx * dx + dy * dy;
   if (d2 >= R2 * R2 || d2 === 0) return false;
+  // The step found them already overlapping. Rewind both to the instant they touched (solve
+  // |d − w·s| = 2R for s) so the line of centres, and so where the object ball goes, is exact:
+  // judged from the overlap it was off by up to ~0.6° on fast cuts. Resolve there, then move on.
+  let back = 0;
+  const wx = b.vx - a.vx;
+  const wy = b.vy - a.vy;
+  const dw = dx * wx + dy * wy;
+  const ww = wx * wx + wy * wy;
+  if (dw < 0 && ww > 1e-12) {
+    const s = (dw + Math.sqrt(dw * dw - ww * (d2 - R2 * R2))) / ww;
+    back = s < 0 ? 0 : s > h ? h : s;
+    a.x -= a.vx * back;
+    a.y -= a.vy * back;
+    b.x -= b.vx * back;
+    b.y -= b.vy * back;
+    dx = b.x - a.x;
+    dy = b.y - a.y;
+    d2 = dx * dx + dy * dy;
+  }
   const d = Math.sqrt(d2);
   const nx = dx / d;
   const ny = dy / d;
@@ -181,19 +203,27 @@ function ballBall(t: TableSpec, a: Ball, b: Ball, time: number, events: SimEvent
   a.vy -= p * ny;
   b.vx += p * nx;
   b.vy += p * ny;
-  // A touch of throw: friction between the balls drags the object ball along the cue ball's
-  // slip, limited to a small fraction of the normal impulse.
+  // Throw: friction between the balls drags the object ball a little along the surfaces' slip.
+  // Ball-ball friction falls sharply as the slip gets faster (Alciatore's measured fit,
+  // mu = 0.00995 + 0.108·e^(−1.088·v)), so slow cuts throw a little and firm ones hardly at all.
+  // Scaled down for a game (THROW): a cut aimed at the ghost ball should drop, as the guide says.
   const tx = -ny;
   const ty = nx;
   const R = t.ballRadius;
   // relative sliding of the two surfaces at the contact: a's surface there moves at +R·wz·t
   // (contact on its +n side), b's at −R·wz·t (contact on its −n side)
   const slip = (a.vx - b.vx) * tx + (a.vy - b.vy) * ty + R * (a.wz + b.wz);
-  const jt = clamp(-slip / 7, -0.05 * p, 0.05 * p);
+  const mu = THROW * (0.00995 + 0.108 * dexp(-1.088 * (slip < 0 ? -slip : slip)));
+  const jt = clamp(-slip / 7, -mu * p, mu * p);
   a.vx += jt * tx;
   a.vy += jt * ty;
   b.vx -= jt * tx;
   b.vy -= jt * ty;
+  // and forward again over the rewound time, with the new velocities
+  a.x += a.vx * back;
+  a.y += a.vy * back;
+  b.x += b.vx * back;
+  b.y += b.vy * back;
   events.push({ t: time, type: 'ball', a: a.id, b: b.id, speed: approach });
   return true;
 }
@@ -337,7 +367,7 @@ export function run(table: TableSpec, balls: Ball[], opts: SimOptions = {}): Sim
           if (!b.on || (!am && !moving(b))) continue;
           const dx = b.x - a.x;
           if (dx > 2.2 * R || dx < -2.2 * R) continue;
-          ballBall(table, a, b, time, events);
+          ballBall(table, a, b, time, events, h);
         }
       }
       for (let i = 0; i < n; i++) {
